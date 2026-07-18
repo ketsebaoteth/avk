@@ -1,0 +1,25 @@
+---
+Checks: 'clang-diagnostic-*,clang-analyzer-*,modernize-*,performance-*,portability-*,readability-*,bugprone-*,-readability-braces-around-statements,-modernize-use-trailing-return-type'
+WarningsAsErrors: '*'
+HeaderFilterRegex: '.*(src|include).*'
+CheckOptions:
+  - key: readability-identifier-naming.ClassCase
+    value: PascalCase
+  - key: readability-identifier-naming.StructCase
+    value: PascalCase
+  - key: readability-identifier-naming.EnumCase
+    value: PascalCase
+  - key: readability-identifier-naming.FunctionCase
+    value: camelCase
+  - key: readability-identifier-naming.MethodCase
+    value: camelCase
+  - key: readability-identifier-naming.VariableCase
+    value: camelCase
+  - key: readability-identifier-naming.MemberCase
+    value: camelCase
+  - key: readability-identifier-naming.MemberPrefix
+    value: 'm_'
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_SNAKE
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_SNAKE
