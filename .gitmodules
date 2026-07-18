@@ -1,0 +1,3 @@
+[submodule "thirdparty/Vera"]
+	path = thirdparty/Vera
+	url = https://github.com/ketsebaoteth/Vera.git
