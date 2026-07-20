@@ -8,17 +8,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 if(MSVC)
-    add_compile_options(/W4 /WX)
+  add_compile_options(/W4 /WX)
 else()
-    add_compile_options(-Wall -Wextra -Werror)
+  add_compile_options(-Wall -Wextra -Werror  -Wno-missing-field-initializers)
 endif()
 
 # Locate Vulkan SDK
 if(DEFINED ENV{VULKAN_SDK})
-    set(VULKAN_HEADERS_DIR "$ENV{VULKAN_SDK}/include")
+  set(VULKAN_HEADERS_DIR "$ENV{VULKAN_SDK}/include")
 else()
-    find_package(Vulkan REQUIRED)
-    set(VULKAN_HEADERS_DIR ${Vulkan_INCLUDE_DIRS})
+  find_package(Vulkan REQUIRED)
+  set(VULKAN_HEADERS_DIR ${Vulkan_INCLUDE_DIRS})
 endif()
 
 # Find Offline Shader Compiler glslc
@@ -37,17 +37,17 @@ set(SPV_OUTPUTS)
 set(SHADER_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 
 foreach(SHADER_FILE ${SHADER_SOURCES})
-    get_filename_component(SHADER_NAME ${SHADER_FILE} NAME)
-    set(SPV_FILE "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
-    
-    add_custom_command(
+  get_filename_component(SHADER_NAME ${SHADER_FILE} NAME)
+  set(SPV_FILE "${SHADER_OUTPUT_DIR}/${SHADER_NAME}.spv")
+
+  add_custom_command(
         OUTPUT ${SPV_FILE}
         COMMAND ${CMAKE_COMMAND} -E make_directory ${SHADER_OUTPUT_DIR}
         COMMAND ${GLSLC_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_FILE} -o ${SPV_FILE}
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${SHADER_FILE}
         COMMENT "Compiling shader: ${SHADER_NAME} -> ${SHADER_NAME}.spv"
     )
-    list(APPEND SPV_OUTPUTS ${SPV_FILE})
+  list(APPEND SPV_OUTPUTS ${SPV_FILE})
 endforeach()
 
 # Create dynamic target for shaders
@@ -69,19 +69,19 @@ FetchContent_MakeAvailable(glm)
 # -----------------------------------------------------------------
 # 3. Volk (We apply and propagate Vulkan platform definitions here)
 # -----------------------------------------------------------------
-add_library(volk STATIC 
+add_library(volk STATIC
     thirdparty/volk/volk.c
     thirdparty/volk/volk.h
 )
-target_include_directories(volk PUBLIC 
-    thirdparty/volk 
+target_include_directories(volk PUBLIC
+    thirdparty/volk
     ${VULKAN_HEADERS_DIR}
 )
 
 if(WIN32)
-    target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WIN32_KHR)
+  target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WIN32_KHR)
 elseif(UNIX AND NOT APPLE)
-    target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WAYLAND_KHR VK_USE_PLATFORM_XLIB_KHR)
+  target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WAYLAND_KHR VK_USE_PLATFORM_XLIB_KHR)
 endif()
 
 # -----------------------------------------------------------------
@@ -100,9 +100,10 @@ file(GLOB_RECURSE AVK_SOURCES CONFIGURE_DEPENDS
 add_library(avk_engine STATIC ${AVK_SOURCES})
 add_dependencies(avk_engine avk_compiled_shaders) # Compiles shaders BEFORE compiling engine code
 
-target_include_directories(avk_engine PUBLIC 
+target_include_directories(avk_engine PUBLIC
     include
     thirdparty/volk
+    thirdparty/Vera/src/
 )
 target_include_directories(avk_engine SYSTEM PUBLIC
     thirdparty/vma_allocator
@@ -121,7 +122,7 @@ add_executable(avk_example example/basic.cpp)
 target_link_libraries(avk_example PRIVATE avk_engine)
 
 if(MSVC)
-    target_compile_options(avk_example PRIVATE 
+  target_compile_options(avk_example PRIVATE
         /wd4100 # unreferenced formal parameter
         /wd4189 # local variable is initialized but not referenced
         /wd4324 # structure was padded due to alignment specifier
@@ -134,9 +135,9 @@ if(MSVC)
 endif()
 
 if(WIN32)
-    target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_WIN32 UNICODE _UNICODE)
-    target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_WIN32 UNICODE _UNICODE)
+  target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_WIN32 UNICODE _UNICODE)
+  target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_WIN32 UNICODE _UNICODE)
 elseif(UNIX AND NOT APPLE)
-    target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_LINUX)
-    target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_LINUX)
+  target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_LINUX)
+  target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_LINUX)
 endif()
