@@ -1,6 +1,5 @@
 #include "avk/utils/vkdebug.h"
 #include "core/app/Types.h"
-#include <bit>
 #if defined(VERA_PLATFORM_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -34,12 +33,14 @@ VulkanContext::VulkanContext(std::optional<VeraNativeHandle> nativeDisplay,
     return;
 
   m_allocator = std::make_unique<GpuAllocator>(this);
+
   if (!m_allocator->isValid()) {
     releaseResources();
     return;
   }
 
   m_isValid = true;
+  m_textureManager = std::make_unique<TextureManager>(this);
 }
 
 VulkanContext::~VulkanContext() { releaseResources(); }
@@ -75,6 +76,7 @@ VulkanContext &VulkanContext::operator=(VulkanContext &&other) noexcept {
 }
 
 void VulkanContext::releaseResources() {
+  m_textureManager.reset();
   m_allocator.reset();
 
   if (m_device != VK_NULL_HANDLE) {
@@ -296,9 +298,22 @@ bool VulkanContext::createLogicalDevice() {
     queueCreateInfos.push_back(presentQueueCreateInfo);
   }
 
+  // 1. Explicitly request Vulkan 1.2 Bindless Descriptor Indexing hardware
+  // capabilities
+  VkPhysicalDeviceVulkan12Features features12{};
+  features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+  features12.descriptorBindingPartiallyBound = VK_TRUE;
+  features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
+  features12.runtimeDescriptorArray = VK_TRUE;
+  features12.shaderSampledImageArrayNonUniformIndexing =
+      VK_TRUE; // Enabled for nonuniformEXT in GLSL
+
+  // 2. Request Vulkan 1.3 Dynamic Rendering, linking to the Vulkan 1.2 feature
+  // chain
   VkPhysicalDeviceVulkan13Features features13{};
   features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
   features13.dynamicRendering = VK_TRUE;
+  features13.pNext = &features12;
 
   VkPhysicalDeviceFeatures2 deviceFeatures2{};
   deviceFeatures2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;

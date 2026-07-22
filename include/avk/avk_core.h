@@ -1,5 +1,6 @@
 #pragma once
 
+#include "avk/avk_texture.h"
 #include "core/app/Types.h"
 #include <memory>
 #include <volk.h>
@@ -54,6 +55,9 @@ public:
     return m_queueFamilies;
   }
   [[nodiscard]] GpuAllocator *getAllocator() const { return m_allocator.get(); }
+  [[nodiscard]] TextureManager *getTextureManager() const {
+    return m_textureManager.get();
+  }
 
 private:
   bool createInstance(bool enableValidation);
@@ -76,6 +80,7 @@ private:
   QueueFamilyIndices m_queueFamilies;
 
   std::unique_ptr<GpuAllocator> m_allocator;
+  std::unique_ptr<TextureManager> m_textureManager;
 
   bool m_isValid = false;
 };

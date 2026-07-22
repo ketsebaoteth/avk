@@ -2,47 +2,55 @@
 #include "core/app/App.h"
 #include "core/app/Types.h"
 #include "glm/fwd.hpp"
+#include "ui/color.h"
 #include "ui/components.h"
 #include <print>
 
-void drawUI(VeraWindow *window) {
+void drawUI(VeraWindow *window, uint32_t iconindex) {
   auto width = static_cast<float>(atomic::getWidth(window));
   auto height = static_cast<float>(atomic::getHeight(window));
 
-  atomic::Column(atomic::DefaultModifier()
-                     .background({0.05f, 0.05f, 0.05f, 1.0f})
-                     .size(width, height)
-                     .padding(20, 20)
-                     .gap(15),
-                 [&]() {
-                   atomic::Row(atomic::DefaultModifier()
-                                   .background({0.1f, 0.1f, 0.12f, 1.0f})
-                                   .size(width - 40.0f, 100.0f)
-                                   .rounded(12.0f)
-                                   .padding(10, 10)
-                                   .gap(10),
-                               [&]() {
-                                 atomic::Button(
-                                     atomic::DefaultModifier()
-                                         .background({1.0f, 0.5f, 0.0f, 1.0f})
-                                         .size(80.0f, 40.0f)
-                                         .rounded(6.0f));
-                                 auto mybtn = atomic::Button(
-                                     atomic::DefaultModifier()
-                                         .background({1.0f, 0.0f, 0.0f, 1.0f})
-                                         .size(-1.0f, 40.0f)
-                                         .rounded(6.0f));
-                                 if (mybtn.hovered) {
-                                   std::println("Hovered!\n");
-                                 }
-                               });
+  atomic::Column(
+      atomic::DefaultModifier()
+          .background({0.05f, 0.05f, 0.05f, 1.0f})
+          .size(width, height)
+          .padding(20, 20)
+          .gap(15),
+      [&]() {
+        atomic::Row(
+            atomic::DefaultModifier()
+                .background({0.1f, 0.1f, 0.12f, 1.0f})
+                .size(width - 40.0f, 100.0f)
+                .rounded(12.0f)
+                .padding(10, 10)
+                .gap(10),
+            [&]() {
+              atomic::Button(atomic::DefaultModifier()
+                                 .background(Colors::gray[900])
+                                 .size(80.0f, 40.0f)
+                                 .rounded(6.0f)
+                                 .center(),
+                             [&]() {
+                               atomic::Image(
+                                   atomic::DefaultModifier().size(24.0f, 24.0f),
+                                   iconindex, {1.0f, 1.0f, 1.0f, 0.9f});
+                             });
+              auto mybtn =
+                  atomic::Button(atomic::DefaultModifier()
+                                     .background({1.0f, 0.0f, 0.0f, 1.0f})
+                                     .size(-1.0f, 40.0f)
+                                     .rounded(6.0f));
+              if (mybtn.hovered) {
+                // std::println("Hovered!\n");
+              }
+            });
 
-                   atomic::Column(atomic::DefaultModifier()
-                                      .background({0.08f, 0.08f, 0.1f, 1.0f})
-                                      .size(width - 40.0f, height - 180.0f)
-                                      .rounded(12.0f),
-                                  [&]() {});
-                 });
+        atomic::Column(atomic::DefaultModifier()
+                           .background({0.08f, 0.08f, 0.1f, 1.0f})
+                           .size(width - 40.0f, height - 180.0f)
+                           .rounded(12.0f),
+                       [&]() {});
+      });
 }
 
 int main() {
@@ -61,8 +69,9 @@ int main() {
   VeraWindow *window = windowResult.value();
 
   VeraNativeHandle handle = window->getNativeHandle();
-  atomic::initialize(handle, false);
+  atomic::initialize(handle, true);
   atomic::registerWindow(window);
+  auto index = atomic::loadTexture("./icons/move3d.png");
 
   window->setTitlebarHitTestRegions({.dragRegion = VeraRect{0, 0, 800, 30},
                                      .minimizeButton = VeraRect{740, 5, 30, 20},
@@ -76,7 +85,7 @@ int main() {
   });
 
   window->setResizeCallback(
-      [&isClosing, window](uint32_t newWidth, uint32_t newHeight) {
+      [&isClosing, window, index](uint32_t newWidth, uint32_t newHeight) {
         if (isClosing)
           return;
 
@@ -89,7 +98,7 @@ int main() {
              .closeButton = VeraRect{newWidth, 5, 30, 20}});
 
         if (atomic::beginFrame(window)) {
-          drawUI(window);
+          drawUI(window, index);
           atomic::endFrame(window);
         }
       });
@@ -101,7 +110,7 @@ int main() {
     }
 
     if (atomic::beginFrame(window)) {
-      drawUI(window);
+      drawUI(window, index);
       atomic::endFrame(window);
     }
   }

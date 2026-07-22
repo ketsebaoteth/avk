@@ -32,6 +32,14 @@ struct UIState {
   }
 };
 
+struct ImagePayload {
+  uint32_t textureIndex;
+  glm::vec4 tintColor;
+};
+
+enum class AlignmentX : uint8_t { Left, Center, Right, SpaceBetween };
+enum class AlignmentY : uint8_t { Top, Center, Bottom, SpaceBetween };
+
 /**
  * @brief Chaining Modifier holding rendering and alignment styles.
  */
@@ -52,6 +60,9 @@ struct Style {
   uint16_t padBottom = 0;
 
   uint16_t childGap = 0;
+
+  AlignmentX alignX = AlignmentX::Left;
+  AlignmentY alignY = AlignmentY::Top;
 };
 
 /**
@@ -111,6 +122,21 @@ public:
     m_style.childGap = spacing;
     return std::move(*this);
   }
+  Modifier alignX(AlignmentX alignment) && {
+    m_style.alignX = alignment;
+    return std::move(*this);
+  }
+
+  Modifier alignY(AlignmentY alignment) && {
+    m_style.alignY = alignment;
+    return std::move(*this);
+  }
+
+  Modifier center() && {
+    m_style.alignX = AlignmentX::Center;
+    m_style.alignY = AlignmentY::Center;
+    return std::move(*this);
+  }
 
   const Style &getStyle() const { return m_style; }
 
@@ -137,5 +163,6 @@ uint32_t getHeight(VeraWindow *window);
 
 void Column(Modifier &&modifier, const std::function<void()> &content);
 void Row(Modifier &&modifier, const std::function<void()> &content);
-
+uint32_t loadTexture(const std::string &path);
+void unloadTexture(uint32_t textureIndex);
 } // namespace atomic

@@ -104,6 +104,7 @@ target_include_directories(avk_engine PUBLIC
     include
     thirdparty/volk
     thirdparty/Vera/src/
+    thirdparty/
 )
 target_include_directories(avk_engine SYSTEM PUBLIC
     thirdparty/vma_allocator
