@@ -6,46 +6,50 @@
 #include "ui/components.h"
 #include <print>
 
+std::string myTextBuffer = "";
+
 void drawUI(VeraWindow *window, uint32_t iconindex) {
   auto width = static_cast<float>(atomic::getWidth(window));
   auto height = static_cast<float>(atomic::getHeight(window));
 
   using namespace atomic;
 
-  Column(DefaultModifier()
-             .background({0.05f, 0.05f, 0.05f, 1.0f})
-             .size(width, height)
-             .padding(20, 20)
-             .gap(15),
-         [&]() {
-           Row(DefaultModifier()
-                   .background({0.1f, 0.1f, 0.12f, 1.0f})
-                   .size(width - 40.0f, 100.0f)
-                   .rounded(12.0f)
-                   .padding(10, 10)
-                   .gap(10),
-               [&]() {
-                 Button(DefaultModifier(), [&]() {
-                   Image(DefaultModifier().size(24.0f, 24.0f), iconindex,
-                         Colors::white);
-                 });
-                 auto mybtn = Button(DefaultModifier(),
-                                     [&]() { atomic::Text("button"); });
-                 if (mybtn.hovered) {
-                   // std::println("Hovered!\n");
-                 }
-               });
+  Column(
+      DefaultModifier()
+          .background({0.05f, 0.05f, 0.05f, 1.0f})
+          .size(width, height)
+          .padding(20, 20)
+          .gap(15),
+      [&]() {
+        Row(DefaultModifier()
+                .background({0.1f, 0.1f, 0.12f, 1.0f})
+                .size(width - 40.0f, 100.0f)
+                .rounded(12.0f)
+                .padding(10, 10)
+                .gap(10),
+            [&]() {
+              Button(DefaultModifier(), [&]() {
+                Image(DefaultModifier().size(24.0f, 24.0f), iconindex,
+                      Colors::white);
+              });
+              auto mybtn =
+                  Button(DefaultModifier(), [&]() { atomic::Text("button"); });
+              if (mybtn.hovered) {
+                // std::println("Hovered!\n");
+              }
+              TextInput(DefaultModifier(), myTextBuffer, "sample input field");
+            });
 
-           Column(DefaultModifier()
-                      .background({0.08f, 0.08f, 0.1f, 1.0f})
-                      .size(width - 40.0f, height - 180.0f)
-                      .rounded(12.0f)
-                      .padding(15.0f, 15.0f),
-                  [&]() {
-                    atomic::Text("Some extra content to test weather things "
-                                 "render properly for text");
-                  });
-         });
+        Column(DefaultModifier()
+                   .background({0.08f, 0.08f, 0.1f, 1.0f})
+                   .size(width - 40.0f, height - 180.0f)
+                   .rounded(12.0f)
+                   .padding(15.0f, 15.0f),
+               [&]() {
+                 atomic::Text("Some extra content to test weather things "
+                              "render properly for text");
+               });
+      });
 }
 
 int main() {

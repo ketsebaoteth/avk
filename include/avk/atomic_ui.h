@@ -28,6 +28,19 @@ struct UIState {
   std::vector<std::unique_ptr<avk::Font>> fonts;
   uint32_t defaultFontId = 0;
 
+  uint32_t focusedElementId = 0; // 0 means no active focus
+  std::vector<uint32_t> capturedChars;
+  bool backspacePressed = false;
+  bool enterPressed = false;
+  bool anyInputBoxHovered = false;
+  // for input fields
+  uint32_t cursorPosition = 0;
+  bool selectAll = false;
+  bool deletePressed = false;
+  bool leftArrowPressed = false;
+  bool rightArrowPressed = false;
+  bool ctrlPressed = false;
+
   window::WindowSession *findSession(VeraWindow *window) {
     auto result = std::find_if(sessions.begin(), sessions.end(),
                                [window](const window::WindowSession &session) {
@@ -36,7 +49,9 @@ struct UIState {
     return (result != sessions.end()) ? &(*result) : nullptr;
   }
 };
+bool isKeyboardCaptured();
 
+void clearKeyboardFocus();
 /**
  * @brief Internal helper to safely copy C++ strings into Clay's frame-allocated
  * scratchpad. Prevents dangling pointers during immediate-mode text layouts.

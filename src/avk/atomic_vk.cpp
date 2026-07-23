@@ -128,7 +128,6 @@ void registerWindow(VeraWindow *window) {
       return;
     g_uiState->pointerPos =
         glm::vec2(static_cast<float>(x), static_cast<float>(y));
-
     Clay_SetPointerState(
         Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
         g_uiState->pointerPressed);
@@ -143,6 +142,42 @@ void registerWindow(VeraWindow *window) {
       Clay_SetPointerState(
           Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
           g_uiState->pointerPressed);
+    }
+  });
+
+  window->setCharCallback([](uint32_t codepoint) {
+    if (!g_uiState)
+      return;
+
+    if (g_uiState->focusedElementId != 0 && codepoint >= 32) {
+      g_uiState->capturedChars.push_back(codepoint);
+    }
+  });
+
+  window->setKeyCallback([](VeraKey key, bool pressed, bool repeat) {
+    if (!g_uiState)
+      return;
+    (void)repeat;
+
+    // Track Ctrl modifier globally
+    if (key == VeraKey::LeftCtrl || key == VeraKey::RightCtrl) {
+      g_uiState->ctrlPressed = pressed;
+    }
+
+    if (g_uiState->focusedElementId != 0 && pressed) {
+      if (key == VeraKey::Backspace) {
+        g_uiState->backspacePressed = true;
+      } else if (key == VeraKey::Enter) {
+        g_uiState->enterPressed = true;
+      } else if (key == VeraKey::Delete) {
+        g_uiState->deletePressed = true;
+      } else if (key == VeraKey::Left) {
+        g_uiState->leftArrowPressed = true;
+      } else if (key == VeraKey::Right) {
+        g_uiState->rightArrowPressed = true;
+      } else if (key == VeraKey::ALower && g_uiState->ctrlPressed) {
+        g_uiState->selectAll = true; // Ctrl+A triggered!
+      }
     }
   });
 }
@@ -193,6 +228,9 @@ void endFrame(VeraWindow *window) {
   if (session == nullptr)
     return;
 
+  if (g_uiState->pointerPressed && !g_uiState->anyInputBoxHovered) {
+    g_uiState->focusedElementId = 0;
+  }
   Clay_RenderCommandArray renderCommands =
       Clay_EndLayout(session->lastDeltaTime);
 
@@ -316,6 +354,16 @@ void endFrame(VeraWindow *window) {
     }
   }
   session->canvas->endFrame(*g_uiState->renderer);
+
+  // reset
+  g_uiState->capturedChars.clear();
+  g_uiState->backspacePressed = false;
+  g_uiState->enterPressed = false;
+  g_uiState->anyInputBoxHovered = false;
+  g_uiState->deletePressed = false;
+  g_uiState->leftArrowPressed = false;
+  g_uiState->rightArrowPressed = false;
+  g_uiState->selectAll = false;
 }
 
 void resizeWindow(VeraWindow *window, uint32_t width, uint32_t height) {
@@ -357,6 +405,16 @@ avk::Font *getFont(uint32_t fontId) {
     return nullptr;
   }
   return g_uiState->fonts[fontId].get();
+}
+
+bool isKeyboardCaptured() {
+  return g_uiState && g_uiState->focusedElementId != 0;
+}
+
+void clearKeyboardFocus() {
+  if (g_uiState) {
+    g_uiState->focusedElementId = 0;
+  }
 }
 
 } // namespace atomic

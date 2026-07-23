@@ -37,4 +37,17 @@ Interaction Text(const std::string &text, uint32_t fontId,
 Interaction Text(const std::string &text,
                  Modifier &&modifier = DefaultModifier());
 
+/**
+ * @brief Renders a highly interactive immediate-mode text input box with full
+ * selection and controls.
+ * @param textBuffer Reference to the std::string that will hold the typed
+ * characters.
+ * @param placeholder Fallback placeholder text shown when the buffer is empty.
+ */
+Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
+                      const std::string &placeholder, uint32_t fontId);
+
+Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
+                      const std::string &placeholder);
+
 } // namespace atomic
