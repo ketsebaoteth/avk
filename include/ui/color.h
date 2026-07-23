@@ -1,5 +1,5 @@
-
 #pragma once
+
 #include <algorithm>
 #include <array>
 #include <glm/glm.hpp>
@@ -16,7 +16,7 @@ struct AtomicColor {
   constexpr AtomicColor(float r, float g, float b, float a = 1.0f)
       : r(r), g(g), b(b), a(a) {}
 
-  // Implicit conversion operator directly to your layout library's glm::vec4
+  // Implicit conversion operator directly to glm::vec4
   operator glm::vec4() const { return glm::vec4(r, g, b, a); }
 
   // Brightness multipliers / programmatic tint modifications
@@ -29,16 +29,42 @@ struct AtomicColor {
   constexpr AtomicColor alpha(float newAlpha) const {
     return AtomicColor(r, g, b, newAlpha);
   }
+
+  // Linear interpolation (mix) evaluated completely at compile time
+  constexpr AtomicColor mix(const AtomicColor &other, float t) const {
+    return AtomicColor(r + (other.r - r) * t, g + (other.g - g) * t,
+                       b + (other.b - b) * t, a + (other.a - a) * t);
+  }
 };
 
 // -----------------------------------------------------------------
-// 1. EXTENDABLE FIXED PALETTES (Fixed Order: AtomicColor is now fully
-// complete!)
+// 1. DYNAMIC COMPILE-TIME PALETTE GENERATOR
 // -----------------------------------------------------------------
 struct AtomicPalette {
   std::array<AtomicColor, 10>
       shades; // 50, 100, 200, 300, 400, 500, 600, 700, 800, 900
 
+  constexpr AtomicPalette() = default;
+
+  // Auto-generates all 10 shades at compile-time from a single base color!
+  constexpr AtomicPalette(const AtomicColor &base) {
+    shades[0] = base.mix(AtomicColor(1.0f, 1.0f, 1.0f), 0.92f); // 50
+    shades[1] = base.mix(AtomicColor(1.0f, 1.0f, 1.0f), 0.80f); // 100
+    shades[2] = base.mix(AtomicColor(1.0f, 1.0f, 1.0f), 0.60f); // 200
+    shades[3] = base.mix(AtomicColor(1.0f, 1.0f, 1.0f), 0.40f); // 300
+    shades[4] = base.mix(AtomicColor(1.0f, 1.0f, 1.0f), 0.20f); // 400
+    shades[5] = base;                                           // 500 (Base)
+    shades[6] = base.mix(AtomicColor(0.0f, 0.0f, 0.0f), 0.20f); // 600
+    shades[7] = base.mix(AtomicColor(0.0f, 0.0f, 0.0f), 0.40f); // 700
+    shades[8] = base.mix(AtomicColor(0.0f, 0.0f, 0.0f), 0.60f); // 800
+    shades[9] = base.mix(AtomicColor(0.0f, 0.0f, 0.0f), 0.85f); // 900
+  }
+
+  // Allows manual hardcoded overrides if needed
+  constexpr AtomicPalette(const std::array<AtomicColor, 10> &customShades)
+      : shades(customShades) {}
+
+  // Array index lookup mapping weight values (e.g. gray[900])
   constexpr AtomicColor operator[](size_t weight) const {
     switch (weight) {
     case 50:
@@ -68,29 +94,27 @@ struct AtomicPalette {
 };
 
 // -----------------------------------------------------------------
-// 2. EASILY ADD MORE COLORS HERE
+// 2. PALETTE INSTANCES (Completely compiled at compile-time)
 // -----------------------------------------------------------------
 namespace Colors {
 inline constexpr AtomicColor white = AtomicColor(1.0f, 1.0f, 1.0f, 1.0f);
 inline constexpr AtomicColor transparent = AtomicColor(0.0f, 0.0f, 0.0f, 0.0f);
 inline constexpr AtomicColor orange = AtomicColor(1.0f, 0.5f, 0.0f, 1.0f);
 
-// Easy to add your specific business brand shades directly
+// Dynamic Compile-Time Palettes (Just pass the base 500 color!)
+inline constexpr AtomicPalette gray =
+    AtomicPalette(AtomicColor(0.25f, 0.25f, 0.25f));
+inline constexpr AtomicPalette black =
+    AtomicPalette(AtomicColor(0.10f, 0.10f, 0.11f));
+
+inline constexpr AtomicPalette blue =
+    AtomicPalette(AtomicColor(0.20f, 0.50f, 0.90f));
+inline constexpr AtomicPalette red =
+    AtomicPalette(AtomicColor(0.90f, 0.20f, 0.20f));
+
+// Custom brand colors
 inline constexpr AtomicColor bajajGreen = AtomicColor(0.1f, 0.6f, 0.2f, 1.0f);
 inline constexpr AtomicColor soapBlue = AtomicColor(0.2f, 0.5f, 0.9f, 1.0f);
-
-inline constexpr AtomicPalette gray = AtomicPalette{{
-    AtomicColor(0.95f, 0.95f, 0.95f), // 50
-    AtomicColor(0.88f, 0.88f, 0.88f), // 100
-    AtomicColor(0.75f, 0.75f, 0.75f), // 200
-    AtomicColor(0.60f, 0.60f, 0.60f), // 300
-    AtomicColor(0.45f, 0.45f, 0.45f), // 400
-    AtomicColor(0.25f, 0.25f, 0.25f), // 500
-    AtomicColor(0.18f, 0.18f, 0.18f), // 600
-    AtomicColor(0.12f, 0.12f, 0.12f), // 700
-    AtomicColor(0.06f, 0.06f, 0.06f), // 800
-    AtomicColor(0.02f, 0.02f, 0.02f)  // 900
-}};
 } // namespace Colors
 
 // -----------------------------------------------------------------
@@ -104,7 +128,6 @@ struct AtomicTheme {
   AtomicColor buttonPressed;
   AtomicColor buttonHover;
 
-  // Built-in preset themes configured completely at compile time
   static constexpr AtomicTheme Dark() {
     return AtomicTheme{.background = Colors::gray[900],
                        .surface = Colors::gray[800],
@@ -139,8 +162,6 @@ constexpr int charToHex(char c) {
 }
 } // namespace detail_color
 
-// User-Defined Literal in global scope returns AtomicColor completely at
-// compile time
 constexpr AtomicColor operator""_hex(const char *str, size_t len) {
   std::string_view sv(str, len);
   if (!sv.empty() && sv[0] == '#') {

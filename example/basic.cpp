@@ -6,7 +6,7 @@
 #include "ui/components.h"
 #include <print>
 
-void drawUI(VeraWindow *window, uint32_t iconindex, uint32_t fontIndex) {
+void drawUI(VeraWindow *window, uint32_t iconindex) {
   auto width = static_cast<float>(atomic::getWidth(window));
   auto height = static_cast<float>(atomic::getHeight(window));
 
@@ -25,24 +25,14 @@ void drawUI(VeraWindow *window, uint32_t iconindex, uint32_t fontIndex) {
                    .padding(10, 10)
                    .gap(10),
                [&]() {
-                 Button(DefaultModifier()
-                            .background(Colors::gray[900])
-                            .size(80.0f, 40.0f)
-                            .rounded(6.0f)
-                            .center(),
-                        [&]() {
-                          Image(DefaultModifier().size(24.0f, 24.0f), iconindex,
-                                Colors::white);
-                        });
-                 auto mybtn =
-                     Button(DefaultModifier()
-                                .background(Colors::gray[900])
-                                .size(-1.0f, 40.0f)
-                                .rounded(6.0f)
-                                .center(),
-                            [&]() { atomic::Text("button", fontIndex); });
+                 Button(DefaultModifier(), [&]() {
+                   Image(DefaultModifier().size(24.0f, 24.0f), iconindex,
+                         Colors::white);
+                 });
+                 auto mybtn = Button(DefaultModifier(),
+                                     [&]() { atomic::Text("button"); });
                  if (mybtn.hovered) {
-                   std::println("Hovered!\n");
+                   // std::println("Hovered!\n");
                  }
                });
 
@@ -53,8 +43,7 @@ void drawUI(VeraWindow *window, uint32_t iconindex, uint32_t fontIndex) {
                       .padding(15.0f, 15.0f),
                   [&]() {
                     atomic::Text("Some extra content to test weather things "
-                                 "render properly for text",
-                                 fontIndex);
+                                 "render properly for text");
                   });
          });
 }
@@ -76,7 +65,6 @@ int main() {
   atomic::initialize(handle, true);
   atomic::registerWindow(window);
   auto index = atomic::loadTexture("./icons/move3d.png");
-  auto fontIndex = atomic::loadFont("assets/fonts/Inter_18pt-Regular.ttf", 19);
 
   window->setTitlebarHitTestRegions({.dragRegion = VeraRect{0, 0, 800, 30},
                                      .minimizeButton = VeraRect{740, 5, 30, 20},
@@ -89,24 +77,24 @@ int main() {
     return true;
   });
 
-  window->setResizeCallback([&isClosing, window, index,
-                             fontIndex](uint32_t newWidth, uint32_t newHeight) {
-    if (isClosing)
-      return;
+  window->setResizeCallback(
+      [&isClosing, window, index](uint32_t newWidth, uint32_t newHeight) {
+        if (isClosing)
+          return;
 
-    atomic::resizeWindow(window, newWidth, newHeight);
+        atomic::resizeWindow(window, newWidth, newHeight);
 
-    window->setTitlebarHitTestRegions(
-        {.dragRegion = VeraRect{0, 0, newWidth, 30},
-         .minimizeButton = VeraRect{newWidth - 60, 5, 30, 20},
-         .maximizeButton = VeraRect{newWidth - 30, 5, 30, 20},
-         .closeButton = VeraRect{newWidth, 5, 30, 20}});
+        window->setTitlebarHitTestRegions(
+            {.dragRegion = VeraRect{0, 0, newWidth, 30},
+             .minimizeButton = VeraRect{newWidth - 60, 5, 30, 20},
+             .maximizeButton = VeraRect{newWidth - 30, 5, 30, 20},
+             .closeButton = VeraRect{newWidth, 5, 30, 20}});
 
-    if (atomic::beginFrame(window)) {
-      drawUI(window, index, fontIndex);
-      atomic::endFrame(window);
-    }
-  });
+        if (atomic::beginFrame(window)) {
+          drawUI(window, index);
+          atomic::endFrame(window);
+        }
+      });
 
   while (app.getWindowCount() > 0) {
     app.pollEvents();
@@ -115,7 +103,7 @@ int main() {
     }
 
     if (atomic::beginFrame(window)) {
-      drawUI(window, index, fontIndex);
+      drawUI(window, index);
       atomic::endFrame(window);
     }
   }

@@ -24,7 +24,9 @@ struct UIState {
 
   glm::vec2 pointerPos = glm::vec2(0.0f);
   bool pointerPressed = false;
+
   std::vector<std::unique_ptr<avk::Font>> fonts;
+  uint32_t defaultFontId = 0;
 
   window::WindowSession *findSession(VeraWindow *window) {
     auto result = std::find_if(sessions.begin(), sessions.end(),
@@ -53,28 +55,25 @@ enum class AlignmentY : uint8_t { Top, Center, Bottom, SpaceBetween };
  * @brief Chaining Modifier holding rendering and alignment styles.
  */
 struct Style {
-  glm::vec4 backgroundColor = glm::vec4(0.0f);
-  glm::vec4 borderRadius = glm::vec4(0.0f);
-  glm::vec4 strokeColor = glm::vec4(0.0f);
-  float strokeThickness = 0.0f;
+  std::optional<glm::vec4> backgroundColor;
+  std::optional<glm::vec4> borderRadius;
+  std::optional<glm::vec4> strokeColor;
+  std::optional<float> strokeThickness;
 
-  float width = 0.0f;
-  float height = 0.0f;
-  bool hasWidth = false;
-  bool hasHeight = false;
+  std::optional<float> width;
+  std::optional<float> height;
 
-  glm::vec4 textColor = glm::vec4(1.0f);
-  float textOffset = -3.0f;
+  std::optional<glm::vec4> textColor;
+  std::optional<float> textOffset;
 
-  uint16_t padLeft = 0;
-  uint16_t padRight = 0;
-  uint16_t padTop = 0;
-  uint16_t padBottom = 0;
+  std::optional<uint16_t> padLeft;
+  std::optional<uint16_t> padRight;
+  std::optional<uint16_t> padTop;
+  std::optional<uint16_t> padBottom;
 
-  uint16_t childGap = 0;
-
-  AlignmentX alignX = AlignmentX::Left;
-  AlignmentY alignY = AlignmentY::Top;
+  std::optional<uint16_t> childGap;
+  std::optional<AlignmentX> alignX;
+  std::optional<AlignmentY> alignY;
 };
 
 /**
@@ -107,16 +106,18 @@ public:
   }
 
   Modifier size(float width, float height) && {
-    m_style.width = width;
-    m_style.height = height;
-    // if has a value of -1.0f a grow is assumed instead of it being treated
-    // like actuall dimensions
     if (width != -1.0f) {
-      m_style.hasWidth = true;
+      m_style.width = width;
+    } else {
+      m_style.width = std::nullopt;
     }
+
     if (height != -1.0f) {
-      m_style.hasHeight = true;
+      m_style.height = height;
+    } else {
+      m_style.height = std::nullopt;
     }
+
     return std::move(*this);
   }
 
@@ -182,11 +183,10 @@ void resizeWindow(VeraWindow *window, uint32_t width, uint32_t height);
 uint32_t getWidth(VeraWindow *window);
 uint32_t getHeight(VeraWindow *window);
 
-void Column(Modifier &&modifier, const std::function<void()> &content);
-void Row(Modifier &&modifier, const std::function<void()> &content);
 uint32_t loadTexture(const std::string &path);
 void unloadTexture(uint32_t textureIndex);
 avk::Font *getFont(uint32_t fontId);
+uint32_t getDefaultFontId();
 uint32_t loadFont(const std::string &path, uint32_t fontSize);
 
 } // namespace atomic

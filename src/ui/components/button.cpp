@@ -2,6 +2,7 @@
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
+#include "ui/color.h"
 #include "ui/components.h"
 
 namespace atomic {
@@ -9,63 +10,76 @@ namespace atomic {
 Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   const auto &style = modifier.getStyle();
 
+  glm::vec4 bg = style.backgroundColor.value_or(Colors::black[800]);
+  glm::vec4 radius = style.borderRadius.value_or(glm::vec4(6.0f));
+
+  Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_CENTER;
+  if (style.alignX.has_value()) {
+    switch (style.alignX.value()) {
+    case AlignmentX::Left:
+      clayAlignX = CLAY_ALIGN_X_LEFT;
+      break;
+    case AlignmentX::Right:
+      clayAlignX = CLAY_ALIGN_X_RIGHT;
+      break;
+    default:
+      clayAlignX = CLAY_ALIGN_X_CENTER;
+      break;
+    }
+  }
+
+  Clay_LayoutAlignmentY clayAlignY = CLAY_ALIGN_Y_CENTER;
+  if (style.alignY.has_value()) {
+    switch (style.alignY.value()) {
+    case AlignmentY::Top:
+      clayAlignY = CLAY_ALIGN_Y_TOP;
+      break;
+    case AlignmentY::Bottom:
+      clayAlignY = CLAY_ALIGN_Y_BOTTOM;
+      break;
+    default:
+      clayAlignY = CLAY_ALIGN_Y_CENTER;
+      break;
+    }
+  }
+
   Clay_ElementId buttonId = utils::layout::getNextId("Button");
   Clay__OpenElementWithId(buttonId);
 
-  // 1. Convert your style enums to Clay layout options
-  Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_LEFT;
-  switch (style.alignX) {
-  case AlignmentX::Center:
-    clayAlignX = CLAY_ALIGN_X_CENTER;
-    break;
-  case AlignmentX::Right:
-    clayAlignX = CLAY_ALIGN_X_RIGHT;
-    break;
-  default:
-    clayAlignX = CLAY_ALIGN_X_LEFT;
-    break;
-  }
+  // 3. Resolve sizing (defaults to Height 40px and Width FIT)
+  Clay_Sizing sizing{};
+  sizing.width = style.width.has_value()
+                     ? CLAY_SIZING_FIXED(style.width.value())
+                     : CLAY_SIZING_FIT();
 
-  Clay_LayoutAlignmentY clayAlignY = CLAY_ALIGN_Y_TOP;
-  switch (style.alignY) {
-  case AlignmentY::Center:
-    clayAlignY = CLAY_ALIGN_Y_CENTER;
-    break;
-  case AlignmentY::Bottom:
-    clayAlignY = CLAY_ALIGN_Y_BOTTOM;
-    break;
-  default:
-    clayAlignY = CLAY_ALIGN_Y_TOP;
-    break;
-  }
+  sizing.height = style.height.has_value()
+                      ? CLAY_SIZING_FIXED(style.height.value())
+                      : CLAY_SIZING_FIXED(40.0f); // Default button height
 
   Clay_ElementDeclaration decl{};
-  decl.layout = {
-      .sizing = {.width = style.hasWidth ? CLAY_SIZING_FIXED(style.width)
-                                         : CLAY_SIZING_GROW(),
-                 .height = style.hasHeight ? CLAY_SIZING_FIXED(style.height)
-                                           : CLAY_SIZING_GROW()},
-      .padding = {style.padLeft, style.padRight, style.padTop, style.padBottom},
-      .childGap = style.childGap,
-      .childAlignment = {.x = clayAlignX, .y = clayAlignY},
-      .layoutDirection = CLAY_LEFT_TO_RIGHT
+  decl.layout = {.sizing = sizing,
+                 .padding = {style.padLeft.value_or(16), // Default margins
+                             style.padRight.value_or(16),
+                             style.padTop.value_or(10),
+                             style.padBottom.value_or(10)},
+                 .childGap = style.childGap.value_or(0),
+                 .childAlignment = {.x = clayAlignX, .y = clayAlignY},
+                 .layoutDirection = CLAY_LEFT_TO_RIGHT};
 
-  };
-
+  // Evaluate exact CPU-side rounded box hover
   bool isHovered = false;
   Clay_ElementData elementData = Clay_GetElementData(buttonId);
   if (elementData.found) {
     isHovered = utils::ui::isPointerOverRoundedBox(
         utils::layout::getUiState()->pointerPos, elementData.boundingBox,
-        style.borderRadius);
+        radius);
   }
 
   bool isPressed = isHovered && utils::layout::getUiState()->pointerPressed;
 
-  Clay_Color color = {
-      style.backgroundColor.r * 255.0f, style.backgroundColor.g * 255.0f,
-      style.backgroundColor.b * 255.0f, style.backgroundColor.a * 255.0f};
-
+  // Apply color highlights
+  Clay_Color color = {bg.r * 255.0f, bg.g * 255.0f, bg.b * 255.0f,
+                      bg.a * 255.0f};
   if (isPressed) {
     color.r *= 0.8f;
     color.g *= 0.8f;
@@ -77,13 +91,10 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   }
 
   decl.backgroundColor = color;
-  decl.cornerRadius = {style.borderRadius.x, style.borderRadius.y,
-                       style.borderRadius.z, style.borderRadius.w};
+  decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
 
   Clay__ConfigureOpenElement(decl);
 
-  // If the user nested any child elements inside this button, execute them
-  // here!
   if (content) {
     content();
   }

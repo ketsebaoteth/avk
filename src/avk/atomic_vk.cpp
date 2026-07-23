@@ -63,7 +63,13 @@ void initialize(std::optional<VeraNativeHandle> nativeDisplay,
   Clay_Initialize(arena, Clay_Dimensions{800, 600},
                   Clay_ErrorHandler{utils::layout::handleClayError, nullptr});
   Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
+
+  // autoload built in font inter right now
+  g_uiState->defaultFontId =
+      loadFont("assets/fonts/Inter_18pt-Regular.ttf", 18);
 }
+
+uint32_t getDefaultFontId() { return g_uiState ? g_uiState->defaultFontId : 0; }
 
 void shutdown() {
   if (!g_uiState)
@@ -335,112 +341,6 @@ uint32_t getHeight(VeraWindow *window) {
   return session ? session->canvas->getHeight() : 0;
 }
 
-void Column(Modifier &&modifier, const std::function<void()> &content) {
-  const auto &style = modifier.getStyle();
-
-  Clay__OpenElementWithId(utils::layout::getNextId("Column"));
-
-  Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_LEFT;
-  switch (style.alignX) {
-  case AlignmentX::Center:
-    clayAlignX = CLAY_ALIGN_X_CENTER;
-    break;
-  case AlignmentX::Right:
-    clayAlignX = CLAY_ALIGN_X_RIGHT;
-    break;
-  default:
-    clayAlignX = CLAY_ALIGN_X_LEFT;
-    break;
-  }
-
-  Clay_LayoutAlignmentY clayAlignY = CLAY_ALIGN_Y_TOP;
-  switch (style.alignY) {
-  case AlignmentY::Center:
-    clayAlignY = CLAY_ALIGN_Y_CENTER;
-    break;
-  case AlignmentY::Bottom:
-    clayAlignY = CLAY_ALIGN_Y_BOTTOM;
-    break;
-  default:
-    clayAlignY = CLAY_ALIGN_Y_TOP;
-    break;
-  }
-
-  Clay_ElementDeclaration decl{};
-  decl.layout = {
-      .sizing = {.width = style.hasWidth ? CLAY_SIZING_FIXED(style.width)
-                                         : CLAY_SIZING_GROW(),
-                 .height = style.hasHeight ? CLAY_SIZING_FIXED(style.height)
-                                           : CLAY_SIZING_GROW()},
-      .padding = {style.padLeft, style.padRight, style.padTop, style.padBottom},
-      .childGap = style.childGap,
-      .childAlignment = {.x = clayAlignX, .y = clayAlignY},
-      .layoutDirection = CLAY_TOP_TO_BOTTOM};
-
-  decl.backgroundColor = {
-      style.backgroundColor.r * 255.0f, style.backgroundColor.g * 255.0f,
-      style.backgroundColor.b * 255.0f, style.backgroundColor.a * 255.0f};
-  decl.cornerRadius = {style.borderRadius.x, style.borderRadius.y,
-                       style.borderRadius.z, style.borderRadius.w};
-
-  Clay__ConfigureOpenElement(decl);
-
-  content();
-
-  Clay__CloseElement();
-} // namespace atomic
-
-void Row(Modifier &&modifier, const std::function<void()> &content) {
-  const auto &style = modifier.getStyle();
-
-  Clay__OpenElementWithId(utils::layout::getNextId("Row"));
-  Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_LEFT;
-  switch (style.alignX) {
-  case AlignmentX::Center:
-    clayAlignX = CLAY_ALIGN_X_CENTER;
-    break;
-  case AlignmentX::Right:
-    clayAlignX = CLAY_ALIGN_X_RIGHT;
-    break;
-  default:
-    clayAlignX = CLAY_ALIGN_X_LEFT;
-    break;
-  }
-
-  Clay_LayoutAlignmentY clayAlignY = CLAY_ALIGN_Y_TOP;
-  switch (style.alignY) {
-  case AlignmentY::Center:
-    clayAlignY = CLAY_ALIGN_Y_CENTER;
-    break;
-  case AlignmentY::Bottom:
-    clayAlignY = CLAY_ALIGN_Y_BOTTOM;
-    break;
-  default:
-    clayAlignY = CLAY_ALIGN_Y_TOP;
-    break;
-  }
-  Clay_ElementDeclaration decl{};
-  decl.layout = {
-      .sizing = {.width = style.hasWidth ? CLAY_SIZING_FIXED(style.width)
-                                         : CLAY_SIZING_GROW(),
-                 .height = style.hasHeight ? CLAY_SIZING_FIXED(style.height)
-                                           : CLAY_SIZING_GROW()},
-      .padding = {style.padLeft, style.padRight, style.padTop, style.padBottom},
-      .childGap = style.childGap,
-      .childAlignment = {.x = clayAlignX, .y = clayAlignY},
-      .layoutDirection = CLAY_LEFT_TO_RIGHT};
-  decl.backgroundColor = {
-      style.backgroundColor.r * 255.0f, style.backgroundColor.g * 255.0f,
-      style.backgroundColor.b * 255.0f, style.backgroundColor.a * 255.0f};
-  decl.cornerRadius = {style.borderRadius.x, style.borderRadius.y,
-                       style.borderRadius.z, style.borderRadius.w};
-
-  Clay__ConfigureOpenElement(decl);
-
-  content();
-
-  Clay__CloseElement();
-}
 uint32_t loadTexture(const std::string &path) {
   if (!g_uiState)
     return 0;
