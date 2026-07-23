@@ -1,11 +1,9 @@
-#include <cstdio>
-#include <print>
 #define NOMINMAX
 #include "avk/atomic_ui.h"
 #include "avk/avk_canvas.h"
 #include "avk/avk_core.h"
+#include "avk/avk_font.h"
 #include "avk/avk_renderer.h"
-#include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
 #include "core/app/Types.h"
@@ -23,6 +21,31 @@ std::unique_ptr<UIState> g_uiState = nullptr;
 uint32_t g_elementIdCounter = 0;
 // --globals
 
+uint32_t loadFont(const std::string &path, uint32_t fontSize) {
+  if (!g_uiState)
+    return 0;
+
+  auto font =
+      std::make_unique<avk::Font>(g_uiState->context.get(), path, fontSize);
+  g_uiState->fonts.push_back(std::move(font));
+
+  return static_cast<uint32_t>(g_uiState->fonts.size() - 1);
+}
+
+static Clay_Dimensions measureTextCallback(Clay_StringSlice text,
+                                           Clay_TextElementConfig *config,
+                                           void *userData) {
+  (void)userData;
+  if (!g_uiState || config->fontId >= g_uiState->fonts.size()) {
+    return Clay_Dimensions{0.0f, 0.0f};
+  }
+
+  std::string str(text.chars, text.length);
+  glm::vec2 size = g_uiState->fonts[config->fontId]->measureText(str);
+
+  return Clay_Dimensions{size.x, size.y};
+}
+
 void initialize(std::optional<VeraNativeHandle> nativeDisplay,
                 bool enableValidation) {
   g_uiState = std::make_unique<UIState>();
@@ -39,6 +62,7 @@ void initialize(std::optional<VeraNativeHandle> nativeDisplay,
       totalMemorySize, g_uiState->clayArenaMemory);
   Clay_Initialize(arena, Clay_Dimensions{800, 600},
                   Clay_ErrorHandler{utils::layout::handleClayError, nullptr});
+  Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
 }
 
 void shutdown() {
@@ -234,6 +258,55 @@ void endFrame(VeraWindow *window) {
       instance.blur = 0.0f;
 
       g_uiState->renderer->submit(instance);
+    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
+      Clay_TextRenderData *textData = &cmd->renderData.text;
+
+      if (textData->fontId >= g_uiState->fonts.size()) {
+        continue;
+      }
+
+      union {
+        void *p;
+        float f;
+      } u;
+      u.p = cmd->userData;
+      float textOffset = u.f;
+
+      const avk::Font &font = *g_uiState->fonts[textData->fontId];
+      float cursorX = cmd->boundingBox.x;
+      float cursorY = cmd->boundingBox.y;
+
+      glm::vec4 textColor = glm::vec4(
+          textData->textColor.r / 255.0f, textData->textColor.g / 255.0f,
+          textData->textColor.b / 255.0f, textData->textColor.a / 255.0f);
+
+      for (int32_t charIndex = 0; charIndex < textData->stringContents.length;
+           ++charIndex) {
+        char c = textData->stringContents.chars[charIndex];
+        const avk::Glyph &glyph = font.getGlyph(c);
+
+        float posX = std::round(cursorX + glyph.bearing.x);
+        float posY = std::round(cursorY + (font.getAscent() - glyph.bearing.y) +
+                                textOffset);
+        float posW = std::round(glyph.size.x);
+        float posH = std::round(glyph.size.y);
+
+        avk::InstanceData instance{};
+        instance.rectXYWH = glm::vec4(posX, posY, posW, posH);
+        instance.borderRadius = glm::vec4(0.0f);
+        instance.fillColorA = textColor;
+        instance.uvBounds = glyph.uvBounds;
+
+        instance.shapeType = 0;
+        instance.fillType = 3;
+        instance.textureIndex = font.getTextureIndex();
+        instance.strokeThickness = 0.0f;
+        instance.blur = 0.0f;
+
+        g_uiState->renderer->submit(instance);
+
+        cursorX += glyph.advance;
+      }
     }
   }
   session->canvas->endFrame(*g_uiState->renderer);
@@ -379,6 +452,13 @@ void unloadTexture(uint32_t textureIndex) {
     return;
   g_uiState->context->getTextureManager()->unloadTexture(textureIndex);
 }
+avk::Font *getFont(uint32_t fontId) {
+  if (!g_uiState || fontId >= g_uiState->fonts.size()) {
+    return nullptr;
+  }
+  return g_uiState->fonts[fontId].get();
+}
+
 } // namespace atomic
 
 namespace utils::layout {

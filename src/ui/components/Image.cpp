@@ -6,17 +6,26 @@
 
 namespace atomic {
 
-void Image(Modifier &&modifier, uint32_t textureIndex, const glm::vec4 &tint) {
+Interaction Image(Modifier &&modifier, uint32_t textureIndex,
+                  const glm::vec4 &tint) {
   const auto &style = modifier.getStyle();
 
-  Clay__OpenElementWithId(utils::layout::getNextId("Image"));
+  Clay_ElementId imageId = utils::layout::getNextId("Image");
+  Clay__OpenElementWithId(imageId);
 
-  // 1. Allocate our layout tracking payload block on the heap
+  bool isHovered = false;
+  Clay_ElementData elementData = Clay_GetElementData(imageId);
+  if (elementData.found) {
+    isHovered = utils::ui::isPointerOverRoundedBox(
+        utils::layout::getUiState()->pointerPos, elementData.boundingBox,
+        style.borderRadius);
+  }
+
+  bool isPressed = isHovered && utils::layout::getUiState()->pointerPressed;
+
   auto *payload = new ImagePayload{textureIndex, tint};
 
   Clay_ElementDeclaration decl{};
-
-  // Standard dimension configurations
   decl.layout = {
       .sizing = {.width = style.hasWidth ? CLAY_SIZING_FIXED(style.width)
                                          : CLAY_SIZING_GROW(),
@@ -31,11 +40,22 @@ void Image(Modifier &&modifier, uint32_t textureIndex, const glm::vec4 &tint) {
                        style.borderRadius.z, style.borderRadius.w};
 
   decl.userData = payload;
-
   decl.image = {.imageData = payload};
 
   Clay__ConfigureOpenElement(decl);
   Clay__CloseElement();
+
+  Interaction result{};
+  result.hovered = isHovered;
+  result.pressed = isPressed;
+
+  auto pointerState = Clay_GetPointerState();
+  if (isHovered &&
+      pointerState.state == CLAY_POINTER_DATA_RELEASED_THIS_FRAME) {
+    result.clicked = true;
+  }
+
+  return result;
 }
 
 } // namespace atomic

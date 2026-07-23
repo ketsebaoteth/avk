@@ -1,5 +1,5 @@
 #define CLAY_IMPLEMENTATION
-#include "avk/atomic_ui.h"
+#include "atomic_ui.h"
 #include "clay.h"
 #include <string>
 
@@ -16,7 +16,6 @@ Clay_String copyStringToClayBuffer(const std::string &text) {
                          .length = static_cast<int32_t>(text.size()),
                          .chars = text.c_str()};
 
-  // Safely copies the string data into Clay's frame-allocated dynamic arena
   return Clay__WriteStringToCharBuffer(&context->dynamicStringData, clayString);
 }
 

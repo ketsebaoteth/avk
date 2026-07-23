@@ -4,6 +4,7 @@
 #include <cstring>
 #include <iostream>
 #include <utility>
+#include <vulkan/vulkan_core.h>
 
 namespace avk {
 
@@ -17,6 +18,7 @@ TextureManager::TextureManager(VulkanContext *context) : m_context(context) {
 
   createDescriptorSet();
   createSharedSampler();
+  createFontSampler();
 
   // Initialize our free slot stack with available index slots
   m_textures.resize(MAX_BINDLESS_TEXTURES);
@@ -52,12 +54,37 @@ TextureManager &TextureManager::operator=(TextureManager &&other) noexcept {
   }
   return *this;
 }
+void TextureManager::createFontSampler() {
+  VkDevice device = m_context->getDevice();
+
+  VkSamplerCreateInfo samplerInfo{};
+  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  samplerInfo.magFilter =
+      VK_FILTER_NEAREST; // Point-filtering for sharp text borders!
+  samplerInfo.minFilter = VK_FILTER_NEAREST;
+  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerInfo.anisotropyEnable = VK_FALSE;
+  samplerInfo.unnormalizedCoordinates = VK_FALSE;
+  samplerInfo.compareEnable = VK_FALSE;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+  if (vkCreateSampler(device, &samplerInfo, nullptr, &m_fontSampler) !=
+      VK_SUCCESS) {
+    std::cerr << "avk: Failed to construct Font Nearest Sampler." << std::endl;
+  }
+}
 
 void TextureManager::release() {
   VkDevice device = m_context->getDevice();
   if (device == VK_NULL_HANDLE)
     return;
 
+  if (m_fontSampler != VK_NULL_HANDLE) {
+    vkDestroySampler(device, m_fontSampler, nullptr);
+    m_fontSampler = VK_NULL_HANDLE;
+  }
   // Clear all textures safely via RAII destructors
   for (auto &tex : m_textures) {
     if (tex) {
@@ -458,6 +485,45 @@ void TextureManager::transitionImageLayout(VkImage image, VkFormat format,
   vkCmdPipelineBarrier(cmd, sourceStage, destinationStage, 0, 0, nullptr, 0,
                        nullptr, 1, &barrier);
   endSingleTimeCommands(cmd, tempPool);
+}
+uint32_t TextureManager::registerTexture(AllocatedImage &&image,
+                                         VkImageView view, VkSampler sampler) {
+  if (m_freeSlots.empty()) {
+    std::cerr << "avk: Max bindless texture limit reached!" << std::endl;
+    return 0;
+  }
+
+  VkDevice device = m_context->getDevice();
+  uint32_t slot = m_freeSlots.back();
+  m_freeSlots.pop_back();
+
+  // Write the custom image descriptor to our boundless set
+  VkDescriptorImageInfo descriptorImageInfo{};
+  descriptorImageInfo.sampler =
+      (sampler != VK_NULL_HANDLE) ? sampler : m_sharedSampler;
+  descriptorImageInfo.imageView = view;
+  descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+  VkWriteDescriptorSet write{};
+  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  write.dstSet = m_descriptorSet;
+  write.dstBinding = 0;
+  write.dstArrayElement = slot;
+  write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  write.descriptorCount = 1;
+  write.pImageInfo = &descriptorImageInfo;
+
+  vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+
+  // Create the texture record, taking ownership of the image
+  auto texture = std::make_unique<Texture>();
+  texture->image = std::move(image);
+  texture->view = view;
+  texture->index = slot;
+
+  m_textures[slot] = std::move(texture);
+
+  return slot;
 }
 
 } // namespace avk

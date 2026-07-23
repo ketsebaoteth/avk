@@ -48,6 +48,14 @@ public:
   uint32_t loadTexture(const std::string &path);
 
   /**
+   * @brief Registers an externally created Vulkan image and view into the
+   * bindless set. Transfers ownership of the image and view to the
+   * TextureManager.
+   */
+  uint32_t registerTexture(AllocatedImage &&image, VkImageView view,
+                           VkSampler sampler);
+
+  /**
    * @brief Unregisters a texture, releasing its GPU memory, views, and freeing
    * its slot.
    */
@@ -58,11 +66,13 @@ public:
   }
   VkDescriptorSet getDescriptorSet() const { return m_descriptorSet; }
   VkSampler getSharedSampler() const { return m_sharedSampler; }
+  VkSampler getFontSampler() const { return m_fontSampler; }
 
 private:
   void release();
   void createDescriptorSet();
   void createSharedSampler();
+  void createFontSampler();
 
   // Helpers to record and execute transient GPU upload commands
   VkCommandBuffer beginSingleTimeCommands(VkCommandPool &outPool);
@@ -76,6 +86,7 @@ private:
   VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
   VkDescriptorSet m_descriptorSet = VK_NULL_HANDLE;
   VkSampler m_sharedSampler = VK_NULL_HANDLE;
+  VkSampler m_fontSampler = VK_NULL_HANDLE;
 
   // Managed list of active loaded textures and recycled slots
   std::vector<std::unique_ptr<Texture>> m_textures;

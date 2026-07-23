@@ -21,13 +21,9 @@ else()
   set(VULKAN_HEADERS_DIR ${Vulkan_INCLUDE_DIRS})
 endif()
 
-# Find Offline Shader Compiler glslc
 find_program(GLSLC_EXECUTABLE glslc REQUIRED)
 message(STATUS "Using offline glslc compiler: ${GLSLC_EXECUTABLE}")
 
-# -----------------------------------------------------------------
-# 1. Shader Compile Commands
-# -----------------------------------------------------------------
 set(SHADER_SOURCES
     shaders/ui.vert
     shaders/ui.frag
@@ -50,12 +46,8 @@ foreach(SHADER_FILE ${SHADER_SOURCES})
   list(APPEND SPV_OUTPUTS ${SPV_FILE})
 endforeach()
 
-# Create dynamic target for shaders
 add_custom_target(avk_compiled_shaders DEPENDS ${SPV_OUTPUTS})
 
-# -----------------------------------------------------------------
-# 2. Fetch GLM
-# -----------------------------------------------------------------
 include(FetchContent)
 FetchContent_Declare(
     glm
@@ -66,9 +58,6 @@ FetchContent_Declare(
 set(GLM_TEST_ENABLE OFF CACHE BOOL "Disable GLM tests" FORCE)
 FetchContent_MakeAvailable(glm)
 
-# -----------------------------------------------------------------
-# 3. Volk (We apply and propagate Vulkan platform definitions here)
-# -----------------------------------------------------------------
 add_library(volk STATIC
     thirdparty/volk/volk.c
     thirdparty/volk/volk.h
@@ -84,41 +73,40 @@ elseif(UNIX AND NOT APPLE)
   target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WAYLAND_KHR VK_USE_PLATFORM_XLIB_KHR)
 endif()
 
-# -----------------------------------------------------------------
-# 4. Vera
-# -----------------------------------------------------------------
 add_subdirectory(thirdparty/Vera)
+# Disable FreeType's internal optional tools we do not need for a leaner build
+set(FT_DISABLE_ZLIB ON CACHE BOOL "Disable FreeType ZLib" FORCE)
+set(FT_DISABLE_BZIP2 ON CACHE BOOL "Disable FreeType BZip2" FORCE)
+set(FT_DISABLE_PNG ON CACHE BOOL "Disable FreeType PNG" FORCE)
+set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "Disable FreeType HarfBuzz" FORCE)
 
-# -----------------------------------------------------------------
-# 5. atomic_vk Engine Core
-# -----------------------------------------------------------------
+add_subdirectory(thirdparty/freetype)
+
+
 file(GLOB_RECURSE AVK_SOURCES CONFIGURE_DEPENDS
     "src/*.cpp"
     "include/*.h"
 )
 
 add_library(avk_engine STATIC ${AVK_SOURCES})
-add_dependencies(avk_engine avk_compiled_shaders) # Compiles shaders BEFORE compiling engine code
+add_dependencies(avk_engine avk_compiled_shaders)
+target_link_libraries(avk_engine PUBLIC freetype)
 
 target_include_directories(avk_engine PUBLIC
     include
+    thirdparty/
     thirdparty/volk
     thirdparty/Vera/src/
-    thirdparty/
 )
 target_include_directories(avk_engine SYSTEM PUBLIC
     thirdparty/vma_allocator
     thirdparty/clay
 
 )
-target_link_libraries(avk_engine PUBLIC volk vera glm)
+target_link_libraries(avk_engine PUBLIC volk vera glm freetype)
 
-# Pass the compiled shader folder path to our C++ compilation unit
 target_compile_definitions(avk_engine PRIVATE AVK_SHADER_BINARY_DIR="${SHADER_OUTPUT_DIR}")
 
-# -----------------------------------------------------------------
-# 6. Create Sandbox Example
-# -----------------------------------------------------------------
 add_executable(avk_example example/basic.cpp)
 target_link_libraries(avk_example PRIVATE avk_engine)
 
@@ -142,3 +130,11 @@ elseif(UNIX AND NOT APPLE)
   target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_LINUX)
   target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_LINUX)
 endif()
+
+add_custom_command(
+    TARGET avk_example POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets"
+            "$<TARGET_FILE_DIR:avk_example>/assets"
+    COMMENT "Copying assets folder to target build directory..."
+)

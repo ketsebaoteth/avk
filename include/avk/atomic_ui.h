@@ -2,6 +2,8 @@
 
 #include "avk/avk_canvas.h"
 #include "avk/avk_core.h"
+#include "avk/avk_font.h"
+#include "clay.h"
 #include "core/app/Types.h"
 #include "glm/fwd.hpp"
 #include "window/session.h"
@@ -22,6 +24,7 @@ struct UIState {
 
   glm::vec2 pointerPos = glm::vec2(0.0f);
   bool pointerPressed = false;
+  std::vector<std::unique_ptr<avk::Font>> fonts;
 
   window::WindowSession *findSession(VeraWindow *window) {
     auto result = std::find_if(sessions.begin(), sessions.end(),
@@ -31,6 +34,12 @@ struct UIState {
     return (result != sessions.end()) ? &(*result) : nullptr;
   }
 };
+
+/**
+ * @brief Internal helper to safely copy C++ strings into Clay's frame-allocated
+ * scratchpad. Prevents dangling pointers during immediate-mode text layouts.
+ */
+Clay_String copyStringToClayBuffer(const std::string &text);
 
 struct ImagePayload {
   uint32_t textureIndex;
@@ -53,6 +62,9 @@ struct Style {
   float height = 0.0f;
   bool hasWidth = false;
   bool hasHeight = false;
+
+  glm::vec4 textColor = glm::vec4(1.0f);
+  float textOffset = -3.0f;
 
   uint16_t padLeft = 0;
   uint16_t padRight = 0;
@@ -82,6 +94,15 @@ public:
 
   Modifier background(const glm::vec4 &color) && {
     m_style.backgroundColor = color;
+    return std::move(*this);
+  }
+
+  Modifier color(const glm::vec4 &color) && {
+    m_style.textColor = color;
+    return std::move(*this);
+  }
+  Modifier textOffset(float y) && {
+    m_style.textOffset = y;
     return std::move(*this);
   }
 
@@ -165,4 +186,7 @@ void Column(Modifier &&modifier, const std::function<void()> &content);
 void Row(Modifier &&modifier, const std::function<void()> &content);
 uint32_t loadTexture(const std::string &path);
 void unloadTexture(uint32_t textureIndex);
+avk::Font *getFont(uint32_t fontId);
+uint32_t loadFont(const std::string &path, uint32_t fontSize);
+
 } // namespace atomic

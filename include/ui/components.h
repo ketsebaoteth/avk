@@ -14,6 +14,12 @@ Interaction Button(Modifier &&modifier,
  * @param textureIndex Index of the GPU-uploaded boundless texture.
  * @param tint Color multiplier to tint the image (Defaults to white).
  */
-void Image(Modifier &&modifier, uint32_t textureIndex,
-           const glm::vec4 &tint = glm::vec4(1.0f));
+Interaction Image(Modifier &&modifier, uint32_t textureIndex,
+                  const glm::vec4 &tint = glm::vec4(1.0f));
+/**
+ * @brief Renders a styled, interactive, layout-integrated text component.
+ */
+Interaction Text(const std::string &text, uint32_t fontId,
+                 Modifier &&modifier = DefaultModifier());
+
 } // namespace atomic

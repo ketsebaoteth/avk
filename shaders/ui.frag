@@ -109,11 +109,12 @@ void main() {
         vec2 halfSize = inRectXYWH.zw * 0.5;
         float dist = distance(inPixelPos, center) / length(halfSize);
         fillColor = mix(inFillColorA, inFillColorB, clamp(dist, 0.0, 1.0));
-    } else if (inFillType == 4) { // ImageTexture (Type 4)
-        // Dynamically index our boundless sampler array using the required nonuniformEXT qualifier!
+    }else if(inFillType == 3){
+       float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV).r;
+        fillColor = vec4(inFillColorA.rgb, inFillColorA.a * textAlpha);
+    }
+    else if (inFillType == 4) { // ImageTexture (Type 4)
         vec4 texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV);
-        
-        // Apply the tint color (inFillColorB) and blend it over the button background color (inFillColorA)
         vec4 tintedTex = texColor * inFillColorB;
         fillColor = mix(inFillColorA, tintedTex, tintedTex.a);
     }
