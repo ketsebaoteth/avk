@@ -37,6 +37,49 @@ uint32_t getNextCharIndex(const std::string &str, uint32_t index) {
   return index + getUtf8CharLength(static_cast<unsigned char>(str[index]));
 }
 
+uint32_t getPreviousWordIndex(const std::string &str, uint32_t index) {
+  if (index == 0)
+    return 0;
+  uint32_t idx = index;
+
+  while (idx > 0) {
+    uint32_t prev = getPreviousCharIndex(str, idx);
+    char c = str[prev];
+    if (c != ' ' && c != '\t' && c != ',' && c != '.')
+      break;
+    idx = prev;
+  }
+  while (idx > 0) {
+    uint32_t prev = getPreviousCharIndex(str, idx);
+    char c = str[prev];
+    if (c == ' ' || c == '\t' || c == ',' || c == '.')
+      break;
+    idx = prev;
+  }
+  return idx;
+}
+
+uint32_t getNextWordIndex(const std::string &str, uint32_t index) {
+  uint32_t len = static_cast<uint32_t>(str.size());
+  if (index >= len)
+    return len;
+  uint32_t idx = index;
+
+  while (idx < len) {
+    char c = str[idx];
+    if (c == ' ' || c == '\t' || c == ',' || c == '.')
+      break;
+    idx = getNextCharIndex(str, idx);
+  }
+  while (idx < len) {
+    char c = str[idx];
+    if (c != ' ' && c != '\t' && c != ',' && c != '.')
+      break;
+    idx = getNextCharIndex(str, idx);
+  }
+  return idx;
+}
+
 void appendUtf8(std::string &str, uint32_t codepoint, uint32_t &cursorBytePos) {
   std::string temp;
   if (codepoint < 0x80) {
@@ -112,9 +155,8 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(6.0f));
 
   float textboxHeight = style.height.value_or(40.0f);
-  avk::Font *font =
-      getFont(fontId); // get font associated with the provided fontID
-  // TODO: is this font size or font height is a separate thing ?
+  avk::Font *font = getFont(fontId);
+  // fontsize
   float fontHeight = font ? font->getLineHeight() : 18.0f;
 
   uint16_t padT = style.padTop.value_or(12);
@@ -122,6 +164,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   uint16_t padL = style.padLeft.value_or(12);
   uint16_t padR = style.padRight.value_or(12);
 
+  // main rect body
   Clay_ElementDeclaration decl{};
   decl.layout = {
       .sizing = {.width = style.width.has_value()
@@ -218,13 +261,23 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     }
 
     if (uiState->leftArrowPressed) {
-      uiState->cursorPosition =
-          getPreviousCharIndex(textBuffer, uiState->cursorPosition);
+      if (uiState->ctrlPressed) {
+        uiState->cursorPosition =
+            getPreviousWordIndex(textBuffer, uiState->cursorPosition);
+      } else {
+        uiState->cursorPosition =
+            getPreviousCharIndex(textBuffer, uiState->cursorPosition);
+      }
       uiState->selectAll = false;
     }
     if (uiState->rightArrowPressed) {
-      uiState->cursorPosition =
-          getNextCharIndex(textBuffer, uiState->cursorPosition);
+      if (uiState->ctrlPressed) {
+        uiState->cursorPosition =
+            getNextWordIndex(textBuffer, uiState->cursorPosition);
+      } else {
+        uiState->cursorPosition =
+            getNextCharIndex(textBuffer, uiState->cursorPosition);
+      }
       uiState->selectAll = false;
     }
 
