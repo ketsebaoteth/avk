@@ -24,7 +24,6 @@ struct UIState {
 
   glm::vec2 pointerPos = glm::vec2(0.0f);
   bool pointerPressed = false;
-
   std::vector<std::unique_ptr<avk::Font>> fonts;
   uint32_t defaultFontId = 0;
 
@@ -33,9 +32,12 @@ struct UIState {
   bool backspacePressed = false;
   bool enterPressed = false;
   bool anyInputBoxHovered = false;
-  // for input fields
+
   uint32_t cursorPosition = 0;
   bool selectAll = false;
+  uint32_t selectionStart = 0;
+  uint32_t selectionEnd = 0;
+
   bool deletePressed = false;
   bool leftArrowPressed = false;
   bool rightArrowPressed = false;

@@ -5,6 +5,7 @@
 #include "clay.h"
 #include "ui/color.h"
 #include "ui/components.h"
+#include <iostream>
 
 namespace {
 
@@ -73,27 +74,51 @@ void appendUtf8(std::string &str, uint32_t codepoint, uint32_t &cursorBytePos) {
 
 namespace atomic {
 
+static inline uint32_t findWhereCursorLanded(std::string &textBuffer,
+                                             avk::Font *font,
+                                             float relativeMouseX) {
+  float currentWidth = 0.0f;
+  uint32_t clickedIndex = 0;
+  float accumulatedWidth = 0;
+
+  for (uint32_t i = 0; i < textBuffer.size();
+       i = getNextCharIndex(textBuffer, i)) {
+    std::string sub = textBuffer.substr(getPreviousCharIndex(textBuffer, i), 1);
+    currentWidth = font->measureText(sub).x;
+    accumulatedWidth += currentWidth;
+    if (relativeMouseX < accumulatedWidth) {
+      auto lastCharMiddleLine = accumulatedWidth - (currentWidth / 2);
+      if (relativeMouseX < lastCharMiddleLine) {
+        clickedIndex = i;
+      } else {
+        clickedIndex = getNextCharIndex(textBuffer, i);
+      }
+      break;
+    }
+    clickedIndex = static_cast<uint32_t>(textBuffer.size());
+  }
+  return clickedIndex;
+}
+
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                       const std::string &placeholder, uint32_t fontId) {
   const auto &style = modifier.getStyle();
 
-  // 1. Generate stable element ID
   Clay_ElementId textInputId = utils::layout::getNextId("TextInput");
   Clay__OpenElementWithId(textInputId);
 
-  // Baseline visual style overrides: black[800] and 6px rounded corners
-  glm::vec4 bg = style.backgroundColor.value_or(
-      glm::vec4(0.06f, 0.06f, 0.06f, 1.0f)); // Colors::black[800]
-  glm::vec4 radius =
-      style.borderRadius.value_or(glm::vec4(6.0f)); // 6px rounded
+  // Baseline visuals
+  glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(Colors::black[800]));
+  glm::vec4 radius = style.borderRadius.value_or(glm::vec4(6.0f));
 
   float textboxHeight = style.height.value_or(40.0f);
-  avk::Font *font = getFont(fontId);
+  avk::Font *font =
+      getFont(fontId); // get font associated with the provided fontID
+  // TODO: is this font size or font height is a separate thing ?
   float fontHeight = font ? font->getLineHeight() : 18.0f;
 
-  // Anchor text vertically using Top-Alignment, keeping the baseline static
-  uint16_t verticalPadding =
-      static_cast<uint16_t>((textboxHeight - fontHeight) * 0.5f);
+  uint16_t padT = style.padTop.value_or(12);
+  uint16_t padB = style.padBottom.value_or(12);
   uint16_t padL = style.padLeft.value_or(12);
   uint16_t padR = style.padRight.value_or(12);
 
@@ -103,9 +128,9 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                               ? CLAY_SIZING_FIXED(style.width.value())
                               : CLAY_SIZING_GROW(),
                  .height = CLAY_SIZING_FIXED(textboxHeight)},
-      .padding = {padL, padR, verticalPadding, verticalPadding},
+      .padding = {padL, padR, padT, padB},
       .childAlignment = {.x = CLAY_ALIGN_X_LEFT,
-                         .y = CLAY_ALIGN_Y_TOP}, // Anchor to TOP
+                         .y = CLAY_ALIGN_Y_CENTER}, // Anchor center
       .layoutDirection = CLAY_LEFT_TO_RIGHT};
 
   decl.backgroundColor = {bg.r * 255.0f, bg.g * 255.0f, bg.b * 255.0f,
@@ -140,36 +165,34 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   bool isFocused = (uiState->focusedElementId == textInputId.id);
 
-  // Click-to-Move Cursor: project cursor position dynamically
+  auto resetSelection = [&]() {
+    uiState->selectionStart = 0;
+    uiState->selectionEnd = 0;
+  };
+
+  // find where to place cursor on click
   if (isFocused && isHovered && uiState->pointerPressed && !justFocused &&
       font) {
     float relativeMouseX =
         uiState->pointerPos.x - (elementData.boundingBox.x + padL);
-    float currentWidth = 0.0f;
-    uint32_t clickedIndex = 0;
-
-    for (uint32_t i = 0; i < textBuffer.size();
-         i = getNextCharIndex(textBuffer, i)) {
-      std::string sub = textBuffer.substr(0, i);
-      currentWidth = font->measureText(sub).x;
-      if (relativeMouseX < currentWidth) {
-        clickedIndex = getPreviousCharIndex(textBuffer, i);
-        break;
-      }
-      clickedIndex = static_cast<uint32_t>(textBuffer.size());
-    }
-    uiState->cursorPosition = clickedIndex;
+    uiState->cursorPosition =
+        findWhereCursorLanded(textBuffer, font, relativeMouseX);
     uiState->selectAll = false;
+    resetSelection();
   }
 
   // Process keyboard input operations
   if (isFocused) {
     if (uiState->selectAll) {
       uiState->cursorPosition = static_cast<uint32_t>(textBuffer.size());
+      uiState->selectionStart = 0;
+      uiState->selectionEnd = static_cast<uint32_t>(textBuffer.size());
+      uiState->selectAll = false;
     }
 
     if (uiState->backspacePressed) {
-      if (uiState->selectAll) {
+      if (uiState->selectionStart != uiState->selectionEnd) {
+        // Todo: for now only
         textBuffer.clear();
         uiState->cursorPosition = 0;
         uiState->selectAll = false;
@@ -183,7 +206,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     }
 
     if (uiState->deletePressed) {
-      if (uiState->selectAll) {
+      if (uiState->selectionStart != uiState->selectionEnd) {
         textBuffer.clear();
         uiState->cursorPosition = 0;
         uiState->selectAll = false;
@@ -206,8 +229,9 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     }
 
     if (!uiState->capturedChars.empty()) {
-      if (uiState->selectAll) {
+      if (uiState->selectionStart != uiState->selectionEnd) {
         textBuffer.clear();
+        resetSelection();
         uiState->cursorPosition = 0;
         uiState->selectAll = false;
       }
@@ -217,35 +241,13 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     }
   }
 
-  float textOffsetValue = style.textOffset.value_or(-3.0f);
+  float textOffsetValue = style.textOffset.value_or(-4.0f);
 
   // Calculate cursor offset for floating rendering
   float cursorOffset = 0.0f;
   if (isFocused && font) {
     std::string leftSub = textBuffer.substr(0, uiState->cursorPosition);
     cursorOffset = font->measureText(leftSub).x;
-  }
-
-  // 4. THE FLOATING SELECTION FIX (Aligns perfectly with text margins!)
-  if (isFocused && uiState->selectAll && font && elementData.found) {
-    float textW = font->measureText(textBuffer).x;
-
-    Clay__OpenElementWithId(utils::layout::getNextId("SelectionHighlight"));
-
-    Clay_ElementDeclaration selectDecl{};
-    selectDecl.floating = {// Offset exactly by left padding and vertical
-                           // padding to match baseline!
-                           .offset = {static_cast<float>(padL),
-                                      static_cast<float>(verticalPadding)},
-                           .attachTo = CLAY_ATTACH_TO_PARENT};
-    selectDecl.backgroundColor = {46.0f, 117.0f, 209.0f,
-                                  255.0f}; // Blue highlight
-    selectDecl.cornerRadius = {3.0f, 3.0f, 3.0f, 3.0f};
-    selectDecl.layout = {.sizing = {.width = CLAY_SIZING_FIXED(textW),
-                                    .height = CLAY_SIZING_FIXED(fontHeight)}};
-
-    Clay__ConfigureOpenElement(selectDecl);
-    Clay__CloseElement();
   }
 
   // Render text or placeholder
@@ -259,26 +261,52 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
          DefaultModifier().color(Colors::white).textOffset(textOffsetValue));
   }
 
-  // 5. THE FLOATING CURSOR FIX (Aligns perfectly with text margins!)
   if (isFocused && !uiState->selectAll && font && elementData.found) {
     float caretH = fontHeight * 0.85f;
-    float caretY = (fontHeight - caretH) * 0.5f;
+    float caretY = (textboxHeight / 2 - caretH) * 0.5f;
 
     Clay__OpenElementWithId(utils::layout::getNextId("Caret"));
 
     Clay_ElementDeclaration caretDecl{};
-    caretDecl.floating = {
-        // Offset exactly by (padL + cursorOffset) and (verticalPadding +
-        // caretY)
-        .offset = {static_cast<float>(padL) + cursorOffset,
-                   static_cast<float>(verticalPadding) + caretY},
-        .attachTo = CLAY_ATTACH_TO_PARENT};
+    caretDecl.floating = {.offset = {static_cast<float>(padL) + cursorOffset,
+                                     static_cast<float>(padT) + caretY},
+                          .attachTo = CLAY_ATTACH_TO_PARENT};
     caretDecl.backgroundColor = {220.0f, 220.0f, 220.0f, 255.0f};
     caretDecl.cornerRadius = {1.0f, 1.0f, 1.0f, 1.0f};
-    caretDecl.layout = {.sizing = {.width = CLAY_SIZING_FIXED(1.5f),
+    caretDecl.layout = {.sizing = {.width = CLAY_SIZING_FIXED(2.0f),
                                    .height = CLAY_SIZING_FIXED(caretH)}};
 
     Clay__ConfigureOpenElement(caretDecl);
+    Clay__CloseElement();
+  }
+
+  // highlight box
+  if (isFocused && (uiState->selectionStart != uiState->selectionEnd) && font &&
+      elementData.found) {
+    std::string selectedText =
+        textBuffer.substr(uiState->selectionStart,
+                          uiState->selectionEnd - uiState->selectionStart);
+    std::string beforeSelection = textBuffer.substr(0, uiState->selectionStart);
+
+    float selectedTextWidth = font->measureText(selectedText).x;
+    float beforeSelectionWidth = font->measureText(beforeSelection).x;
+    float selectH = fontHeight * 0.85f;
+    float selectY = (textboxHeight / 2 - selectH) * 0.5f;
+
+    Clay__OpenElementWithId(utils::layout::getNextId("SelectionHighlight"));
+
+    Clay_ElementDeclaration selectDecl{};
+    selectDecl.floating = {
+        .offset = {static_cast<float>(padL + beforeSelectionWidth),
+                   static_cast<float>(padT) + selectY},
+        .attachTo = CLAY_ATTACH_TO_PARENT};
+    selectDecl.backgroundColor = {0.0f, 77.0f, 170.0f, 171.0f};
+    selectDecl.cornerRadius = {3.0f, 3.0f, 3.0f, 3.0f};
+    selectDecl.layout = {
+        .sizing = {.width = CLAY_SIZING_FIXED(selectedTextWidth),
+                   .height = CLAY_SIZING_FIXED(selectH)}};
+
+    Clay__ConfigureOpenElement(selectDecl);
     Clay__CloseElement();
   }
 

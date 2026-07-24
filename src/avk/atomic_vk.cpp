@@ -363,7 +363,6 @@ void endFrame(VeraWindow *window) {
   g_uiState->deletePressed = false;
   g_uiState->leftArrowPressed = false;
   g_uiState->rightArrowPressed = false;
-  g_uiState->selectAll = false;
 }
 
 void resizeWindow(VeraWindow *window, uint32_t width, uint32_t height) {
