@@ -1,5 +1,6 @@
 #include "avk/atomic_ui.h"
 #include "avk/utils/ui/layout.h"
+#include "ui/color.h"
 #include "ui/components.h"
 
 namespace atomic {
@@ -13,6 +14,9 @@ void Row(Modifier &&modifier, const std::function<void()> &content) {
   glm::vec4 bg =
       style.backgroundColor.value_or(glm::vec4(0.0f)); // Default transparent
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
+
+  glm::vec4 strokeColor = style.strokeColor.value_or("#ffffff1a"_hex);
+  float strokeWidth = style.strokeThickness.value_or(1.0f);
 
   Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_LEFT; // Default Left
   if (style.alignX.has_value()) {
@@ -61,6 +65,13 @@ void Row(Modifier &&modifier, const std::function<void()> &content) {
   decl.backgroundColor = {bg.r * 255.0f, bg.g * 255.0f, bg.b * 255.0f,
                           bg.a * 255.0f};
   decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
+
+  if (strokeWidth > 0.0f) {
+    uint16_t w = static_cast<uint16_t>(strokeWidth);
+    decl.border = {.color = {strokeColor.r * 255.0f, strokeColor.g * 255.0f,
+                             strokeColor.b * 255.0f, strokeColor.a * 255.0f},
+                   .width = {w, w, w, w}};
+  }
 
   Clay__ConfigureOpenElement(decl);
 

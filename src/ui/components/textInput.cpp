@@ -158,10 +158,12 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   Clay__OpenElementWithId(textInputId);
 
   // Baseline visuals
-  glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(Colors::black[800]));
+  glm::vec4 bg = style.backgroundColor.value_or("#212121"_hex);
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(6.0f));
+  glm::vec4 strokeColor = style.strokeColor.value_or("#ffffff1a"_hex);
+  float strokeWidth = style.strokeThickness.value_or(1.0f);
 
-  float textboxHeight = style.height.value_or(40.0f);
+  float textboxHeight = style.height.value_or(DEFAULT_HEIGHT);
   avk::Font *font = getFont(fontId);
   // fontsize
   float fontHeight = font ? font->getLineHeight() : 18.0f;
@@ -186,6 +188,14 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   decl.backgroundColor = {bg.r * 255.0f, bg.g * 255.0f, bg.b * 255.0f,
                           bg.a * 255.0f};
   decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
+
+  decl.border = {.color =
+                     Clay_Color{strokeColor.r * 255.0f, strokeColor.g * 255.0f,
+                                strokeColor.b * 255.0f, strokeColor.a * 255.0f},
+                 .width = {.left = static_cast<uint16_t>(strokeWidth),
+                           .right = static_cast<uint16_t>(strokeWidth),
+                           .top = static_cast<uint16_t>(strokeWidth),
+                           .bottom = static_cast<uint16_t>(strokeWidth)}};
 
   Clay__ConfigureOpenElement(decl);
 
@@ -314,7 +324,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   if (textBuffer.empty() && !isFocused) {
     Text(placeholder, fontId,
          DefaultModifier()
-             .color(glm::vec4(Colors::gray[700]))
+             .color(glm::vec4(Colors::gray[500]))
              .textOffset(textOffsetValue));
   } else {
     Text(textBuffer, fontId,

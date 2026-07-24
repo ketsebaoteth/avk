@@ -38,6 +38,7 @@ struct AtomicColor {
 // AUTO-COMPENSATION LOGIC
 // -----------------------------------------------------------------
 namespace detail_color {
+
 constexpr int charToHex(char c) {
   if (c >= '0' && c <= '9')
     return c - '0';
@@ -48,20 +49,23 @@ constexpr int charToHex(char c) {
   return 0;
 }
 
-inline float autoCompensate(float c) {
-  // We bracketed the target!
-  // std::powf(c, 1.0f)  -> resulted in #12
-  // std::powf(c, 2.4f)  -> resulted in #06
-  // std::powf(c, 1.28f) -> perfectly interpolates to #0a
-  return std::powf(c, 1.42f);
+// Official IEC 61966-2-1 sRGB to Linear conversion
+inline float srgbToLinear(float c) {
+  if (c <= 0.04045f) {
+    return c / 12.92f;
+  }
+  return std::pow((c + 0.055f) / 1.055f, 2.4f);
 }
 
-// Converts 0-255 inputs and automatically applies the tuned compensation curve
 inline AtomicColor srgbColor(float r255, float g255, float b255,
                              float a = 1.0f) {
-  return AtomicColor(autoCompensate(r255 / 255.0f),
-                     autoCompensate(g255 / 255.0f),
-                     autoCompensate(b255 / 255.0f), a);
+  // Convert alpha to linear space so linear blending matches perceptual CSS
+  // opacity
+  float linearAlpha =
+      (a <= 0.04045f) ? (a / 12.92f) : std::pow((a + 0.055f) / 1.055f, 2.4f);
+
+  return AtomicColor(srgbToLinear(r255 / 255.0f), srgbToLinear(g255 / 255.0f),
+                     srgbToLinear(b255 / 255.0f), linearAlpha);
 }
 } // namespace detail_color
 
@@ -179,28 +183,34 @@ inline AtomicColor operator""_hex(const char *str, size_t len) {
     sv.remove_prefix(1);
   }
 
-  if (sv.length() == 6) {
-    int r =
-        (detail_color::charToHex(sv[0]) << 4) | detail_color::charToHex(sv[1]);
-    int g =
-        (detail_color::charToHex(sv[2]) << 4) | detail_color::charToHex(sv[3]);
-    int b =
-        (detail_color::charToHex(sv[4]) << 4) | detail_color::charToHex(sv[5]);
-    return detail_color::srgbColor(static_cast<float>(r), static_cast<float>(g),
-                                   static_cast<float>(b));
-  } else if (sv.length() == 8) {
-    int r =
-        (detail_color::charToHex(sv[0]) << 4) | detail_color::charToHex(sv[1]);
-    int g =
-        (detail_color::charToHex(sv[2]) << 4) | detail_color::charToHex(sv[3]);
-    int b =
-        (detail_color::charToHex(sv[4]) << 4) | detail_color::charToHex(sv[5]);
-    int a =
-        (detail_color::charToHex(sv[6]) << 4) | detail_color::charToHex(sv[7]);
+  if (sv.length() == 3 || sv.length() == 4) {
+    int r = detail_color::charToHex(sv[0]);
+    int g = detail_color::charToHex(sv[1]);
+    int b = detail_color::charToHex(sv[2]);
+    int a = (sv.length() == 4) ? detail_color::charToHex(sv[3]) : 15;
 
-    // Alpha is linear transparency; it doesn't get color compensated.
-    return detail_color::srgbColor(static_cast<float>(r), static_cast<float>(g),
-                                   static_cast<float>(b), a / 255.0f);
+    // Expand nibbles (e.g., 0xF -> 0xFF)
+    return detail_color::srgbColor(static_cast<float>((r << 4) | r),
+                                   static_cast<float>((g << 4) | g),
+                                   static_cast<float>((b << 4) | b),
+                                   static_cast<float>((a << 4) | a) / 255.0f);
   }
+
+  if (sv.length() == 6 || sv.length() == 8) {
+    int r =
+        (detail_color::charToHex(sv[0]) << 4) | detail_color::charToHex(sv[1]);
+    int g =
+        (detail_color::charToHex(sv[2]) << 4) | detail_color::charToHex(sv[3]);
+    int b =
+        (detail_color::charToHex(sv[4]) << 4) | detail_color::charToHex(sv[5]);
+    int a = (sv.length() == 8) ? ((detail_color::charToHex(sv[6]) << 4) |
+                                  detail_color::charToHex(sv[7]))
+                               : 255;
+
+    return detail_color::srgbColor(static_cast<float>(r), static_cast<float>(g),
+                                   static_cast<float>(b),
+                                   static_cast<float>(a) / 255.0f);
+  }
+
   return AtomicColor(0.0f, 0.0f, 0.0f, 1.0f);
 }

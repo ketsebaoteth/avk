@@ -25,7 +25,6 @@ layout(location = 17) flat in float inBlur;
 layout(location = 0) out vec4 outColor;
 
 // Declare our boundless array of samplers. 
-// The empty brackets '[]' denote a dynamically sized bindless descriptor array.
 layout(binding = 0) uniform sampler2D globalTextures[];
 
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
@@ -109,33 +108,52 @@ void main() {
         vec2 halfSize = inRectXYWH.zw * 0.5;
         float dist = distance(inPixelPos, center) / length(halfSize);
         fillColor = mix(inFillColorA, inFillColorB, clamp(dist, 0.0, 1.0));
-    }else if(inFillType == 3){// text
-       float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV).r;
-        fillColor = vec4(inFillColorA.rgb, inFillColorA.a * textAlpha);
-    }
-    else if (inFillType == 4) { // ImageTexture (Type 4)
+    } else if (inFillType == 3) { // Text
+        float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV).r;
+        outColor = vec4(inFillColorA.rgb, inFillColorA.a * textAlpha);
+        if (outColor.a < 0.001) {
+            discard;
+        }
+        return;  
+    } else if (inFillType == 4) { // ImageTexture
         vec4 texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV);
         vec4 tintedTex = texColor * inFillColorB;
         fillColor = mix(inFillColorA, tintedTex, tintedTex.a);
     }
 
-    float edge = fwidth(d);
-    float alpha = smoothstep(edge + inBlur, -edge, d);
+    // -----------------------------------------------------------------
+    // LINEAR COVERAGE ANTI-ALIASING (CSS / SKIA TRICK)
+    // -----------------------------------------------------------------
+    // fwidth(d) measures distance change per pixel (~1.0).
+    float aaWidth = max(fwidth(d), 0.0001) + inBlur;
+    
+    // Exact 1-pixel linear alpha ramp:
+    // d = -0.5 * aaWidth -> alpha = 1.0 (Fully inside)
+    // d =  0.0          -> alpha = 0.5 (Boundary)
+    // d = +0.5 * aaWidth -> alpha = 0.0 (Fully outside)
+    float alpha = clamp(0.5 - d / aaWidth, 0.0, 1.0);
 
-   if (inShapeType == 2) {
-        // Change from: outColor = fillColor * alpha;
+    if (inShapeType == 2) { // Line
         outColor = vec4(fillColor.rgb, fillColor.a * alpha);
     } else {
         if (inStrokeThickness > 0.0) {
-            float strokeD = abs(d + inStrokeThickness * 0.5) - inStrokeThickness * 0.5;
-            float strokeAlpha = smoothstep(edge + inBlur, -edge, strokeD);
+            float innerD = d + inStrokeThickness;
+            float innerAlpha = clamp(0.5 - innerD / aaWidth, 0.0, 1.0);
 
-            vec4 strokeColor = inStrokeColor;
-            outColor = mix(vec4(0.0), strokeColor, strokeAlpha);
-            // Change from: outColor = mix(outColor, fillColor, alpha);
-            outColor = mix(outColor, vec4(fillColor.rgb, fillColor.a * alpha), alpha);
+            // Isolate stroke ring
+            float strokeMask = clamp(alpha - innerAlpha, 0.0, 1.0);
+
+            vec4 stroke = vec4(inStrokeColor.rgb, inStrokeColor.a * strokeMask);
+            vec4 fill = vec4(fillColor.rgb, fillColor.a * innerAlpha);
+
+            // Standard source-over blending
+            float finalAlpha = fill.a + stroke.a * (1.0 - fill.a);
+            vec3 finalRgb = (finalAlpha > 0.0001)
+                ? (fill.rgb * fill.a + stroke.rgb * stroke.a * (1.0 - fill.a)) / finalAlpha
+                : vec3(0.0);
+
+            outColor = vec4(finalRgb, finalAlpha);
         } else {
-            // Change from: outColor = fillColor * alpha;
             outColor = vec4(fillColor.rgb, fillColor.a * alpha);
         }
     }

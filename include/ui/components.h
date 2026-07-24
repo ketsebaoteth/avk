@@ -1,13 +1,9 @@
 #include "avk/atomic_ui.h"
+#include "ui/color.h"
 
 namespace atomic {
 
-/**
- * @brief Clean interactive Button layout component with optional child
- * composition.
- */
-Interaction Button(Modifier &&modifier,
-                   const std::function<void()> &content = nullptr);
+inline const float DEFAULT_HEIGHT = 36.0f;
 
 /*
  * @brief A basic Column component
@@ -37,6 +33,21 @@ Interaction Text(const std::string &text, uint32_t fontId,
 Interaction Text(const std::string &text,
                  Modifier &&modifier = DefaultModifier());
 
+/**
+ * @brief Clean interactive Button layout component with optional child
+ * composition.
+ */
+Interaction Button(Modifier &&modifier,
+                   const std::function<void()> &content = nullptr);
+
+// Convenience overload that wraps your layout Button
+inline Interaction Button(const std::string &label,
+                          Modifier &&modifier = Modifier{},
+                          glm::vec4 textColor = "#ffffff"_hex) {
+  return Button(std::move(modifier), [label, textColor]() {
+    Text(label, DefaultModifier().color(textColor));
+  });
+}
 /**
  * @brief Renders a highly interactive immediate-mode text input box with full
  * selection and controls.

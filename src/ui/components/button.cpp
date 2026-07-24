@@ -10,8 +10,10 @@ namespace atomic {
 Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   const auto &style = modifier.getStyle();
 
-  glm::vec4 bg = style.backgroundColor.value_or(Colors::black[800]);
+  glm::vec4 bg = style.backgroundColor.value_or("#212121"_hex);
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(6.0f));
+  glm::vec4 strokeColor = style.strokeColor.value_or("#ffffff1a"_hex);
+  float strokeWidth = style.strokeThickness.value_or(1.0f);
 
   Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_CENTER;
   if (style.alignX.has_value()) {
@@ -46,15 +48,15 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   Clay_ElementId buttonId = utils::layout::getNextId("Button");
   Clay__OpenElementWithId(buttonId);
 
-  // 3. Resolve sizing (defaults to Height 40px and Width FIT)
   Clay_Sizing sizing{};
   sizing.width = style.width.has_value()
                      ? CLAY_SIZING_FIXED(style.width.value())
                      : CLAY_SIZING_FIT();
 
-  sizing.height = style.height.has_value()
-                      ? CLAY_SIZING_FIXED(style.height.value())
-                      : CLAY_SIZING_FIXED(40.0f); // Default button height
+  sizing.height =
+      style.height.has_value()
+          ? CLAY_SIZING_FIXED(style.height.value())
+          : CLAY_SIZING_FIXED(DEFAULT_HEIGHT); // Default button height
 
   Clay_ElementDeclaration decl{};
   decl.layout = {.sizing = sizing,
@@ -66,7 +68,14 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
                  .childAlignment = {.x = clayAlignX, .y = clayAlignY},
                  .layoutDirection = CLAY_LEFT_TO_RIGHT};
 
-  // Evaluate exact CPU-side rounded box hover
+  decl.border = {.color =
+                     Clay_Color{strokeColor.r * 255.0f, strokeColor.g * 255.0f,
+                                strokeColor.b * 255.0f, strokeColor.a * 255.0f},
+                 .width = {.left = static_cast<uint16_t>(strokeWidth),
+                           .right = static_cast<uint16_t>(strokeWidth),
+                           .top = static_cast<uint16_t>(strokeWidth),
+                           .bottom = static_cast<uint16_t>(strokeWidth)}};
+
   bool isHovered = false;
   Clay_ElementData elementData = Clay_GetElementData(buttonId);
   if (elementData.found) {
@@ -112,6 +121,6 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   }
 
   return result;
-}
+} // namespace atomic
 
 } // namespace atomic

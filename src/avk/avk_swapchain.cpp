@@ -112,15 +112,12 @@ bool VulkanSwapchain::build(uint32_t width, uint32_t height) {
 
   VkSurfaceFormatKHR selectedFormat = formats[0]; // Default fallback
 
-  for (const auto &format : formats) {
-    // Aggressively grab UNORM regardless of the color space it is paired with
-    if (format.format == VK_FORMAT_B8G8R8A8_UNORM ||
-        format.format == VK_FORMAT_R8G8B8A8_UNORM) {
-      selectedFormat = format;
-      break;
+  for (const auto &availableFormat : formats) {
+    if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
+        availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+      selectedFormat = availableFormat;
     }
   }
-
   m_format = selectedFormat.format;
 
   uint32_t presentModeCount = 0;

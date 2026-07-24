@@ -66,7 +66,7 @@ void initialize(std::optional<VeraNativeHandle> nativeDisplay,
 
   // autoload built in font inter right now
   g_uiState->defaultFontId =
-      loadFont("assets/fonts/Inter_24pt-Regular.ttf", 18);
+      loadFont("assets/fonts/Inter_24pt-Regular.ttf", 19);
 }
 
 uint32_t getDefaultFontId() { return g_uiState ? g_uiState->defaultFontId : 0; }
@@ -261,6 +261,34 @@ void endFrame(VeraWindow *window) {
       instance.shapeType = 0; // Rectangle
       instance.fillType = 0;  // Solid
       instance.strokeThickness = 0.0f;
+      instance.blur = 0.0f;
+
+      g_uiState->renderer->submit(instance);
+    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
+      Clay_BorderRenderData *borderData = &cmd->renderData.border;
+
+      avk::InstanceData instance{};
+      instance.rectXYWH =
+          glm::vec4(cmd->boundingBox.x, cmd->boundingBox.y,
+                    cmd->boundingBox.width, cmd->boundingBox.height);
+
+      // Clay border width has top/bottom/left/right; using width.top for
+      // uniform SDF stroke
+      instance.strokeThickness = static_cast<float>(borderData->width.top);
+
+      instance.strokeColor =
+          glm::vec4(borderData->color.r / 255.0f, borderData->color.g / 255.0f,
+                    borderData->color.b / 255.0f, borderData->color.a / 255.0f);
+
+      instance.borderRadius = glm::vec4(borderData->cornerRadius.topLeft,
+                                        borderData->cornerRadius.topRight,
+                                        borderData->cornerRadius.bottomLeft,
+                                        borderData->cornerRadius.bottomRight);
+
+      // Transparent background fill so only the border stroke renders
+      instance.fillColorA = glm::vec4(0.0f);
+      instance.shapeType = 0; // Rectangle
+      instance.fillType = 0;  // Solid
       instance.blur = 0.0f;
 
       g_uiState->renderer->submit(instance);
