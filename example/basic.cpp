@@ -30,8 +30,7 @@ void drawUI(VeraWindow *window) {
                  if (mybtn.hovered) {
                    // std::println("Hovered!\n");
                  }
-                 TextInput(DefaultModifier(), myTextBuffer,
-                           "sample input field");
+                 TextInput(DefaultModifier(), myTextBuffer, "placeholder...");
                });
 
            Column(DefaultModifier()
