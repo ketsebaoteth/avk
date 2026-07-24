@@ -5,7 +5,6 @@
 #include "clay.h"
 #include "ui/color.h"
 #include "ui/components.h"
-#include <iostream>
 
 namespace {
 
@@ -45,18 +44,22 @@ uint32_t getPreviousWordIndex(const std::string &str, uint32_t index) {
   while (idx > 0) {
     uint32_t prev = getPreviousCharIndex(str, idx);
     char c = str[prev];
-    if (c != ' ' && c != '\t' && c != ',' && c != '.')
+    if (c != ' ' && c != '\t' && c != ',' && c != '.') {
       break;
+    }
     idx = prev;
   }
+
   while (idx > 0) {
     uint32_t prev = getPreviousCharIndex(str, idx);
     char c = str[prev];
-    if (c == ' ' || c == '\t' || c == ',' || c == '.')
-      break;
+    if (c == ' ' || c == '\t' || c == ',' || c == '.') {
+      return idx;
+    }
     idx = prev;
   }
-  return idx;
+
+  return 0;
 }
 
 uint32_t getNextWordIndex(const std::string &str, uint32_t index) {
@@ -67,17 +70,21 @@ uint32_t getNextWordIndex(const std::string &str, uint32_t index) {
 
   while (idx < len) {
     char c = str[idx];
-    if (c == ' ' || c == '\t' || c == ',' || c == '.')
+    if (c == ' ' || c == '\t' || c == ',' || c == '.') {
       break;
+    }
     idx = getNextCharIndex(str, idx);
   }
+
   while (idx < len) {
     char c = str[idx];
-    if (c != ' ' && c != '\t' && c != ',' && c != '.')
-      break;
+    if (c != ' ' && c != '\t' && c != ',' && c != '.') {
+      return idx;
+    }
     idx = getNextCharIndex(str, idx);
   }
-  return idx;
+
+  return len;
 }
 
 void appendUtf8(std::string &str, uint32_t codepoint, uint32_t &cursorBytePos) {
