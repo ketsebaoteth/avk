@@ -163,6 +163,9 @@ void registerWindow(VeraWindow *window) {
     if (key == VeraKey::LeftCtrl || key == VeraKey::RightCtrl) {
       g_uiState->ctrlPressed = pressed;
     }
+    if (key == VeraKey::LeftShift || key == VeraKey::RightShift) {
+      g_uiState->shiftPressed = pressed;
+    }
 
     if (g_uiState->focusedElementId != 0 && pressed) {
       if (key == VeraKey::Backspace) {

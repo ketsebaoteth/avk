@@ -5,6 +5,7 @@
 #include "clay.h"
 #include "ui/color.h"
 #include "ui/components.h"
+#include <algorithm>
 
 namespace {
 
@@ -157,7 +158,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   Clay_ElementId textInputId = utils::layout::getNextId("TextInput");
   Clay__OpenElementWithId(textInputId);
 
-  // Baseline visuals
+  // --- Layout & Visual Properties ---
   glm::vec4 bg = style.backgroundColor.value_or("#212121"_hex);
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(6.0f));
   glm::vec4 strokeColor = style.strokeColor.value_or("#ffffff1a"_hex);
@@ -165,7 +166,6 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   float textboxHeight = style.height.value_or(DEFAULT_HEIGHT);
   avk::Font *font = getFont(fontId);
-  // fontsize
   float fontHeight = font ? font->getLineHeight() : 18.0f;
 
   uint16_t padT = style.padTop.value_or(12);
@@ -173,7 +173,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   uint16_t padL = style.padLeft.value_or(12);
   uint16_t padR = style.padRight.value_or(12);
 
-  // main rect body
+  // Main container decl
   Clay_ElementDeclaration decl{};
   decl.layout = {
       .sizing = {.width = style.width.has_value()
@@ -181,8 +181,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                               : CLAY_SIZING_GROW(),
                  .height = CLAY_SIZING_FIXED(textboxHeight)},
       .padding = {padL, padR, padT, padB},
-      .childAlignment = {.x = CLAY_ALIGN_X_LEFT,
-                         .y = CLAY_ALIGN_Y_CENTER}, // Anchor center
+      .childAlignment = {.x = CLAY_ALIGN_X_LEFT, .y = CLAY_ALIGN_Y_CENTER},
       .layoutDirection = CLAY_LEFT_TO_RIGHT};
 
   decl.backgroundColor = {bg.r * 255.0f, bg.g * 255.0f, bg.b * 255.0f,
@@ -199,64 +198,103 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   Clay__ConfigureOpenElement(decl);
 
-  // Evaluate mouse hover and clicks
+  auto *uiState = utils::layout::getUiState();
+
+  // --- Hover & Focus State Evaluation ---
   bool isHovered = false;
   Clay_ElementData elementData = Clay_GetElementData(textInputId);
   if (elementData.found) {
+    // Reads HOST INPUT: uiState->pointerPos
     isHovered = utils::ui::isPointerOverRoundedBox(
-        utils::layout::getUiState()->pointerPos, elementData.boundingBox,
-        radius);
+        uiState->pointerPos, elementData.boundingBox, radius);
   }
-
-  auto *uiState = utils::layout::getUiState();
 
   if (isHovered) {
-    uiState->anyInputBoxHovered = true;
-  }
-
-  bool justFocused = false;
-  if (isHovered && uiState->pointerPressed &&
-      uiState->focusedElementId != textInputId.id) {
-    uiState->focusedElementId = textInputId.id;
-    uiState->cursorPosition = static_cast<uint32_t>(textBuffer.size());
-    uiState->selectAll = false;
-    justFocused = true;
+    uiState->anyInputBoxHovered =
+        true; // Signals main loop to set I-beam cursor
   }
 
   bool isFocused = (uiState->focusedElementId == textInputId.id);
 
+  // Helper lambdas
   auto resetSelection = [&]() {
     uiState->selectionStart = 0;
     uiState->selectionEnd = 0;
+    uiState->selectionAnchor = 0;
+    uiState->doingShiftSelect = false;
+    uiState->selectAll = false;
   };
 
-  // find where to place cursor on click
-  if (isFocused && isHovered && uiState->pointerPressed && !justFocused &&
-      font) {
+  auto deleteSelection = [&]() -> bool {
+    if (uiState->selectionStart != uiState->selectionEnd) {
+      uint32_t start = uiState->selectionStart;
+      uint32_t len = uiState->selectionEnd - uiState->selectionStart;
+      textBuffer.erase(start, len);
+      uiState->cursorPosition = start;
+      resetSelection();
+      return true;
+    }
+    return false;
+  };
+
+  // --- MOUSE CLICK & DRAG SELECTION LOGIC ---
+  if (elementData.found) {
     float relativeMouseX =
         uiState->pointerPos.x - (elementData.boundingBox.x + padL);
-    uiState->cursorPosition =
-        findWhereCursorLanded(textBuffer, font, relativeMouseX);
-    uiState->selectAll = false;
-    resetSelection();
+
+    // 1. Initial Press (Single Frame Impulse from Host: pointerPressed)
+    if (isHovered && uiState->pointerPressed) {
+      uint32_t landedPos =
+          font ? findWhereCursorLanded(textBuffer, font, relativeMouseX)
+               : static_cast<uint32_t>(textBuffer.size());
+
+      uiState->focusedElementId = textInputId.id;
+      uiState->cursorPosition = landedPos;
+      uiState->selectionAnchor = landedPos;
+      uiState->selectionStart = landedPos;
+      uiState->selectionEnd = landedPos;
+      uiState->isDraggingText = true; // Lock drag state to this component
+      uiState->selectAll = false;
+      uiState->doingShiftSelect = false;
+      isFocused = true;
+    }
+
+    // 2. Active Drag (Continuous State from Host: pointerDown)
+    if (isFocused && uiState->pointerDown && uiState->isDraggingText) {
+      uint32_t landedPos =
+          font ? findWhereCursorLanded(textBuffer, font, relativeMouseX)
+               : static_cast<uint32_t>(textBuffer.size());
+
+      uiState->cursorPosition = landedPos;
+
+      // Explicit template types prevent type mismatch errors (uint32_t vs
+      // size_t)
+      uiState->selectionStart =
+          std::min<uint32_t>(uiState->selectionAnchor, landedPos);
+      uiState->selectionEnd =
+          std::max<uint32_t>(uiState->selectionAnchor, landedPos);
+    }
   }
 
-  // Process keyboard input operations
+  // 3. Clear active drag lock when mouse is released globally
+  if (!uiState->pointerDown) {
+    uiState->isDraggingText = false;
+  }
+
+  // --- KEYBOARD OPERATIONS (Requires Active Focus) ---
   if (isFocused) {
+    // Select All (Ctrl+A command)
     if (uiState->selectAll) {
-      uiState->cursorPosition = static_cast<uint32_t>(textBuffer.size());
       uiState->selectionStart = 0;
       uiState->selectionEnd = static_cast<uint32_t>(textBuffer.size());
+      uiState->cursorPosition = static_cast<uint32_t>(textBuffer.size());
+      uiState->doingShiftSelect = false;
       uiState->selectAll = false;
     }
 
+    // Backspace
     if (uiState->backspacePressed) {
-      if (uiState->selectionStart != uiState->selectionEnd) {
-        // Todo: for now only
-        textBuffer.clear();
-        uiState->cursorPosition = 0;
-        uiState->selectAll = false;
-      } else if (uiState->cursorPosition > 0) {
+      if (!deleteSelection() && uiState->cursorPosition > 0) {
         uint32_t prev =
             getPreviousCharIndex(textBuffer, uiState->cursorPosition);
         uint32_t len = uiState->cursorPosition - prev;
@@ -265,62 +303,81 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       }
     }
 
+    // Delete
     if (uiState->deletePressed) {
-      if (uiState->selectionStart != uiState->selectionEnd) {
-        textBuffer.clear();
-        uiState->cursorPosition = 0;
-        uiState->selectAll = false;
-      } else if (uiState->cursorPosition < textBuffer.size()) {
+      if (!deleteSelection() && uiState->cursorPosition < textBuffer.size()) {
         uint32_t next = getNextCharIndex(textBuffer, uiState->cursorPosition);
         textBuffer.erase(uiState->cursorPosition,
                          next - uiState->cursorPosition);
       }
     }
 
+    // Arrow Navigation & Shift Selection
+    auto moveCursorWithSelection = [&](uint32_t newCursor) {
+      if (uiState->shiftPressed) {
+        uint32_t anchor = uiState->cursorPosition;
+        if (uiState->doingShiftSelect) {
+          anchor = (uiState->cursorPosition == uiState->selectionStart)
+                       ? uiState->selectionEnd
+                       : uiState->selectionStart;
+        } else {
+          uiState->doingShiftSelect = true;
+        }
+
+        uiState->cursorPosition = newCursor;
+        uiState->selectionStart =
+            std::min<uint32_t>(anchor, uiState->cursorPosition);
+        uiState->selectionEnd =
+            std::max<uint32_t>(anchor, uiState->cursorPosition);
+      } else {
+        if (uiState->selectionStart != uiState->selectionEnd &&
+            !uiState->ctrlPressed) {
+          uiState->cursorPosition = (newCursor < uiState->cursorPosition)
+                                        ? uiState->selectionStart
+                                        : uiState->selectionEnd;
+        } else {
+          uiState->cursorPosition = newCursor;
+        }
+        resetSelection();
+      }
+    };
+
     if (uiState->leftArrowPressed) {
-      if (uiState->ctrlPressed) {
-        uiState->cursorPosition =
-            getPreviousWordIndex(textBuffer, uiState->cursorPosition);
-      } else {
-        uiState->cursorPosition =
-            getPreviousCharIndex(textBuffer, uiState->cursorPosition);
-      }
-      uiState->selectAll = false;
-    }
-    if (uiState->rightArrowPressed) {
-      if (uiState->ctrlPressed) {
-        uiState->cursorPosition =
-            getNextWordIndex(textBuffer, uiState->cursorPosition);
-      } else {
-        uiState->cursorPosition =
-            getNextCharIndex(textBuffer, uiState->cursorPosition);
-      }
-      uiState->selectAll = false;
+      uint32_t nextPos =
+          uiState->ctrlPressed
+              ? getPreviousWordIndex(textBuffer, uiState->cursorPosition)
+              : getPreviousCharIndex(textBuffer, uiState->cursorPosition);
+      moveCursorWithSelection(nextPos);
     }
 
+    if (uiState->rightArrowPressed) {
+      uint32_t nextPos =
+          uiState->ctrlPressed
+              ? getNextWordIndex(textBuffer, uiState->cursorPosition)
+              : getNextCharIndex(textBuffer, uiState->cursorPosition);
+      moveCursorWithSelection(nextPos);
+    }
+
+    // Character Input Capture
     if (!uiState->capturedChars.empty()) {
-      if (uiState->selectionStart != uiState->selectionEnd) {
-        textBuffer.clear();
-        resetSelection();
-        uiState->cursorPosition = 0;
-        uiState->selectAll = false;
-      }
+      deleteSelection();
       for (uint32_t codepoint : uiState->capturedChars) {
         appendUtf8(textBuffer, codepoint, uiState->cursorPosition);
       }
     }
   }
 
+  // --- RENDERING PASS ---
   float textOffsetValue = style.textOffset.value_or(0.0f);
 
-  // Calculate cursor offset for floating rendering
+  // Compute cursor X offset
   float cursorOffset = 0.0f;
   if (isFocused && font) {
     std::string leftSub = textBuffer.substr(0, uiState->cursorPosition);
     cursorOffset = font->measureText(leftSub).x;
   }
 
-  // Render text or placeholder
+  // Text / Placeholder
   if (textBuffer.empty() && !isFocused) {
     Text(placeholder, fontId,
          DefaultModifier()
@@ -331,16 +388,18 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
          DefaultModifier().color(Colors::white).textOffset(textOffsetValue));
   }
 
-  if (isFocused && !uiState->selectAll && font && elementData.found) {
+  // Render Caret (Only when no range is selected)
+  if (isFocused && (uiState->selectionStart == uiState->selectionEnd) && font &&
+      elementData.found) {
     float caretH = fontHeight * 0.85f;
-    float caretY = (textboxHeight - padT - padB - caretH) * 0.5f;
+    float caretY = (textboxHeight - caretH) * 0.5f;
 
     Clay__OpenElementWithId(utils::layout::getNextId("Caret"));
 
     Clay_ElementDeclaration caretDecl{};
-    caretDecl.floating = {.offset = {static_cast<float>(padL) + cursorOffset,
-                                     static_cast<float>(padT) + caretY},
-                          .attachTo = CLAY_ATTACH_TO_PARENT};
+    caretDecl.floating = {
+        .offset = {static_cast<float>(padL) + cursorOffset, caretY},
+        .attachTo = CLAY_ATTACH_TO_PARENT};
     caretDecl.backgroundColor = {220.0f, 220.0f, 220.0f, 255.0f};
     caretDecl.cornerRadius = {1.0f, 1.0f, 1.0f, 1.0f};
     caretDecl.layout = {.sizing = {.width = CLAY_SIZING_FIXED(2.0f),
@@ -350,7 +409,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     Clay__CloseElement();
   }
 
-  // highlight box
+  // Render Selection Highlight Box
   if (isFocused && (uiState->selectionStart != uiState->selectionEnd) && font &&
       elementData.found) {
     std::string selectedText =
@@ -361,14 +420,13 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     float selectedTextWidth = font->measureText(selectedText).x;
     float beforeSelectionWidth = font->measureText(beforeSelection).x;
     float selectH = fontHeight * 0.85f;
-    float selectY = (textboxHeight - padB - padT - selectH) * 0.5f;
+    float selectY = (textboxHeight - selectH) * 0.5f;
 
     Clay__OpenElementWithId(utils::layout::getNextId("SelectionHighlight"));
 
     Clay_ElementDeclaration selectDecl{};
     selectDecl.floating = {
-        .offset = {static_cast<float>(padL + beforeSelectionWidth),
-                   static_cast<float>(padT) + selectY},
+        .offset = {static_cast<float>(padL) + beforeSelectionWidth, selectY},
         .attachTo = CLAY_ATTACH_TO_PARENT};
     selectDecl.backgroundColor = {0.0f, 77.0f, 170.0f, 171.0f};
     selectDecl.cornerRadius = {3.0f, 3.0f, 3.0f, 3.0f};
@@ -388,7 +446,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   if (isFocused && uiState->enterPressed) {
     result.clicked = true;
-    uiState->focusedElementId = 0;
+    uiState->focusedElementId = 0; // Unfocus on Enter submission
   }
 
   return result;
