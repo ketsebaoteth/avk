@@ -66,7 +66,7 @@ void initialize(std::optional<VeraNativeHandle> nativeDisplay,
 
   // autoload built in font inter right now
   g_uiState->defaultFontId =
-      loadFont("assets/fonts/Inter_18pt-Regular.ttf", 18);
+      loadFont("assets/fonts/Inter_24pt-Regular.ttf", 18);
 }
 
 uint32_t getDefaultFontId() { return g_uiState ? g_uiState->defaultFontId : 0; }

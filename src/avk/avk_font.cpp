@@ -106,7 +106,7 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
   uint32_t rowHeight = 0;
 
   for (uint8_t i = 32; i < 127; ++i) {
-    if (FT_Load_Char(face, i, FT_LOAD_RENDER)) {
+    if (FT_Load_Char(face, i, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT)) {
       continue;
     }
 

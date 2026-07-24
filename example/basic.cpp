@@ -16,13 +16,13 @@ void drawUI(VeraWindow *window, uint32_t iconindex) {
 
   Column(
       DefaultModifier()
-          .background({0.05f, 0.05f, 0.05f, 1.0f})
+          .background("#0a0a0a"_hex)
           .size(width, height)
           .padding(20, 20)
           .gap(15),
       [&]() {
         Row(DefaultModifier()
-                .background({0.1f, 0.1f, 0.12f, 1.0f})
+                .background("#171717"_hex)
                 .size(width - 40.0f, 100.0f)
                 .rounded(12.0f)
                 .padding(10, 10)
@@ -41,7 +41,7 @@ void drawUI(VeraWindow *window, uint32_t iconindex) {
             });
 
         Column(DefaultModifier()
-                   .background({0.08f, 0.08f, 0.1f, 1.0f})
+                   .background("#171717"_hex)
                    .size(width - 40.0f, height - 180.0f)
                    .rounded(12.0f)
                    .padding(15.0f, 15.0f),

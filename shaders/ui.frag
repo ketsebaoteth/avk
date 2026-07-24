@@ -109,7 +109,7 @@ void main() {
         vec2 halfSize = inRectXYWH.zw * 0.5;
         float dist = distance(inPixelPos, center) / length(halfSize);
         fillColor = mix(inFillColorA, inFillColorB, clamp(dist, 0.0, 1.0));
-    }else if(inFillType == 3){
+    }else if(inFillType == 3){// text
        float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV).r;
         fillColor = vec4(inFillColorA.rgb, inFillColorA.a * textAlpha);
     }
@@ -122,8 +122,9 @@ void main() {
     float edge = fwidth(d);
     float alpha = smoothstep(edge + inBlur, -edge, d);
 
-    if (inShapeType == 2) {
-        outColor = fillColor * alpha;
+   if (inShapeType == 2) {
+        // Change from: outColor = fillColor * alpha;
+        outColor = vec4(fillColor.rgb, fillColor.a * alpha);
     } else {
         if (inStrokeThickness > 0.0) {
             float strokeD = abs(d + inStrokeThickness * 0.5) - inStrokeThickness * 0.5;
@@ -131,9 +132,11 @@ void main() {
 
             vec4 strokeColor = inStrokeColor;
             outColor = mix(vec4(0.0), strokeColor, strokeAlpha);
-            outColor = mix(outColor, fillColor, alpha);
+            // Change from: outColor = mix(outColor, fillColor, alpha);
+            outColor = mix(outColor, vec4(fillColor.rgb, fillColor.a * alpha), alpha);
         } else {
-            outColor = fillColor * alpha;
+            // Change from: outColor = fillColor * alpha;
+            outColor = vec4(fillColor.rgb, fillColor.a * alpha);
         }
     }
 

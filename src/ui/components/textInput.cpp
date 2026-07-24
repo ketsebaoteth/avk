@@ -314,7 +314,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   if (textBuffer.empty() && !isFocused) {
     Text(placeholder, fontId,
          DefaultModifier()
-             .color(glm::vec4(0.40f, 0.40f, 0.40f, 1.0f))
+             .color(glm::vec4(Colors::gray[700]))
              .textOffset(textOffsetValue));
   } else {
     Text(textBuffer, fontId,
