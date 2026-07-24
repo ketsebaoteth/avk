@@ -23,8 +23,10 @@ Interaction Text(const std::string &text, uint32_t fontId,
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
   glm::vec4 textColor =
       style.textColor.value_or(glm::vec4(1.0f)); // Default solid white
-  float textOffset = style.textOffset.value_or(-5.0f);
+  float textOffset = style.textOffset.value_or(-0.0f);
 
+  avk::Font *font = getFont(fontId);
+  float fontHeight = font ? font->getLineHeight() : 18.0f;
   Clay_ElementDeclaration decl{};
   decl.layout = {
       .sizing = {.width = style.width.has_value()
@@ -32,7 +34,7 @@ Interaction Text(const std::string &text, uint32_t fontId,
                               : CLAY_SIZING_FIT(), // Default FIT
                  .height = style.height.has_value()
                                ? CLAY_SIZING_FIXED(style.height.value())
-                               : CLAY_SIZING_FIT()},
+                               : CLAY_SIZING_FIXED(fontHeight)},
       .padding = {style.padLeft.value_or(0), style.padRight.value_or(0),
                   style.padTop.value_or(0), style.padBottom.value_or(0)}};
 
@@ -68,7 +70,6 @@ Interaction Text(const std::string &text, uint32_t fontId,
     }
   }
 
-  avk::Font *font = getFont(fontId);
   uint32_t nativeSize = font ? font->getFontSize() : 16;
 
   Clay_TextElementConfig config{};

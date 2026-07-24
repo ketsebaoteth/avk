@@ -311,7 +311,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     }
   }
 
-  float textOffsetValue = style.textOffset.value_or(-4.0f);
+  float textOffsetValue = style.textOffset.value_or(0.0f);
 
   // Calculate cursor offset for floating rendering
   float cursorOffset = 0.0f;
@@ -333,7 +333,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   if (isFocused && !uiState->selectAll && font && elementData.found) {
     float caretH = fontHeight * 0.85f;
-    float caretY = (textboxHeight / 2 - caretH) * 0.5f;
+    float caretY = (textboxHeight - padT - padB - caretH) * 0.5f;
 
     Clay__OpenElementWithId(utils::layout::getNextId("Caret"));
 
@@ -361,7 +361,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     float selectedTextWidth = font->measureText(selectedText).x;
     float beforeSelectionWidth = font->measureText(beforeSelection).x;
     float selectH = fontHeight * 0.85f;
-    float selectY = (textboxHeight / 2 - selectH) * 0.5f;
+    float selectY = (textboxHeight - padB - padT - selectH) * 0.5f;
 
     Clay__OpenElementWithId(utils::layout::getNextId("SelectionHighlight"));
 

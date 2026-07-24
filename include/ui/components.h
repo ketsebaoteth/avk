@@ -3,7 +3,7 @@
 
 namespace atomic {
 
-inline const float DEFAULT_HEIGHT = 36.0f;
+inline const float DEFAULT_HEIGHT = 38.0f;
 
 /*
  * @brief A basic Column component
