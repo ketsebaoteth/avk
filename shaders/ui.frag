@@ -21,6 +21,8 @@ layout(location = 14) flat in uint inFillType;
 layout(location = 15) flat in uint inTextureIndex; // Dynamic index pointing to globalTextures
 layout(location = 16) flat in vec4 inUvBounds;
 layout(location = 17) flat in float inBlur;
+layout(location = 18) flat in float inScale;
+layout(location = 19) flat in float inRotation;
 
 layout(location = 0) out vec4 outColor;
 
@@ -69,28 +71,31 @@ void main() {
         discard;
     }
 
+    vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
+    vec2 halfSize = inRectXYWH.zw * 0.5;
+
+    // Transform screen pixel position back into local unscaled/unrotated space
+    vec2 pScreen = inPixelPos - center;
+    float c = cos(inRotation);
+    float s = sin(inRotation);
+    mat2 invRot = mat2(c, s, -s, c);
+    vec2 p = (invRot * pScreen) / max(inScale, 0.0001);
+
     float d = 0.0;
     
     if (inShapeType == 0) { // Rectangle / Rounded Rectangle
-        vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
-        vec2 p = inPixelPos - center;
-        vec2 halfSize = inRectXYWH.zw * 0.5;
         d = sdRoundedBox(p, halfSize, inBorderRadius);
         
     } else if (inShapeType == 1) { // Circle
-        vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
-        vec2 p = inPixelPos - center;
-        vec2 halfSize = inRectXYWH.zw * 0.5;
         d = sdCircle(p, min(halfSize.x, halfSize.y));
         
     } else if (inShapeType == 2) { // Line
-        d = sdSegment(inPixelPos, inRectXYWH.xy, inRectXYWH.zw) - inStrokeThickness * 0.5;
+        vec2 localA = invRot * (inRectXYWH.xy - center) / max(inScale, 0.0001);
+        vec2 localB = invRot * (inRectXYWH.zw - center) / max(inScale, 0.0001);
+        d = sdSegment(p, localA, localB) - inStrokeThickness * 0.5;
         
     } else if (inShapeType == 3) { // Polygon (Regular N-gon)
-        vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
-        vec2 p = inPixelPos - center;
-        vec2 halfSize = inRectXYWH.zw * 0.5;
-        int numSides = int(max(inTextureIndex, 3));
+        int numSides = int(max(float(inTextureIndex), 3.0));
         d = sdRegularPolygon(p, min(halfSize.x, halfSize.y), numSides);
     }
 
@@ -99,14 +104,13 @@ void main() {
         vec2 dir = inGradientEnd - inGradientStart;
         float lenSq = dot(dir, dir);
         if (lenSq > 0.0001) {
-            vec2 normCoord = (inPixelPos - inRectXYWH.xy) / inRectXYWH.zw;
+            vec2 localPixelPos = p + halfSize;
+            vec2 normCoord = localPixelPos / inRectXYWH.zw;
             float t = clamp(dot(normCoord - inGradientStart, dir) / lenSq, 0.0, 1.0);
             fillColor = mix(inFillColorA, inFillColorB, t);
         }
     } else if (inFillType == 2) { // Radial gradient
-        vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
-        vec2 halfSize = inRectXYWH.zw * 0.5;
-        float dist = distance(inPixelPos, center) / length(halfSize);
+        float dist = distance(p, vec2(0.0)) / length(halfSize);
         fillColor = mix(inFillColorA, inFillColorB, clamp(dist, 0.0, 1.0));
     } else if (inFillType == 3) { // Text
         float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV).r;
@@ -124,13 +128,8 @@ void main() {
     // -----------------------------------------------------------------
     // LINEAR COVERAGE ANTI-ALIASING (CSS / SKIA TRICK)
     // -----------------------------------------------------------------
-    // fwidth(d) measures distance change per pixel (~1.0).
-    float aaWidth = max(fwidth(d), 0.0001) + inBlur;
+    float aaWidth = (max(fwidth(d), 0.0001) + inBlur) * max(inScale, 0.0001);
     
-    // Exact 1-pixel linear alpha ramp:
-    // d = -0.5 * aaWidth -> alpha = 1.0 (Fully inside)
-    // d =  0.0          -> alpha = 0.5 (Boundary)
-    // d = +0.5 * aaWidth -> alpha = 0.0 (Fully outside)
     float alpha = clamp(0.5 - d / aaWidth, 0.0, 1.0);
 
     if (inShapeType == 2) { // Line

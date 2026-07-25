@@ -52,9 +52,9 @@ struct InstanceData {
       glm::vec4(0.0f, 0.0f, 1.0f, 1.0f); // Default to full UV bounds
 
   float blur = 0.0f;
+  float scale = 1.0f;
+  float rotation = 0.0f;
   float pad0 = 0.0f;
-  float pad1 = 0.0f;
-  float pad2 = 0.0f;
 };
 
 struct Vertex {

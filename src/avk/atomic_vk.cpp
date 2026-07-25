@@ -1,4 +1,5 @@
 #define NOMINMAX
+#include "animation/animation.h"
 #include "avk/atomic_ui.h"
 #include "avk/avk_canvas.h"
 #include "avk/avk_core.h"
@@ -9,9 +10,13 @@
 #include "core/app/Types.h"
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <vector>
+#ifndef AVK_ASSETS_DIR
+#define AVK_ASSETS_DIR "assets"
+#endif
 
 namespace atomic {
 
@@ -21,12 +26,29 @@ std::unique_ptr<UIState> g_uiState = nullptr;
 uint32_t g_elementIdCounter = 0;
 // --globals
 
+std::string getPath(const std::string &relativePath) {
+  namespace fs = std::filesystem;
+  fs::path path(relativePath);
+
+  if (path.is_absolute()) {
+    return path.string();
+  }
+
+  fs::path baseAssetsDir(AVK_ASSETS_DIR);
+
+  if (path.has_parent_path() && path.begin()->string() == "assets") {
+    return path.string();
+  }
+
+  return (baseAssetsDir / path).string();
+}
+
 uint32_t loadFont(const std::string &path, uint32_t fontSize) {
   if (!g_uiState)
     return 0;
 
-  auto font =
-      std::make_unique<avk::Font>(g_uiState->context.get(), path, fontSize);
+  auto font = std::make_unique<avk::Font>(g_uiState->context.get(),
+                                          getPath(path), fontSize);
   g_uiState->fonts.push_back(std::move(font));
 
   return static_cast<uint32_t>(g_uiState->fonts.size() - 1);
@@ -65,8 +87,7 @@ void initialize(std::optional<VeraNativeHandle> nativeDisplay,
   Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
 
   // autoload built in font inter right now
-  g_uiState->defaultFontId =
-      loadFont("assets/fonts/Inter_24pt-Regular.ttf", 19);
+  g_uiState->defaultFontId = loadFont("fonts/Inter_24pt-Regular.ttf", 19);
 }
 
 uint32_t getDefaultFontId() { return g_uiState ? g_uiState->defaultFontId : 0; }
@@ -123,6 +144,11 @@ void registerWindow(VeraWindow *window) {
       window::WindowSession{window, surface, std::move(canvas),
                             std::chrono::high_resolution_clock::now(), 0.016f});
 
+  window->setScrollCallback([&](double xOffset, double yOffset) {
+    g_uiState->mouseWheelDeltaX += static_cast<float>(xOffset);
+    g_uiState->mouseWheelDeltaY += static_cast<float>(yOffset);
+  });
+
   window->setMouseMoveCallback([](double x, double y) {
     if (!g_uiState)
       return;
@@ -131,17 +157,26 @@ void registerWindow(VeraWindow *window) {
     Clay_SetPointerState(
         Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
         g_uiState->pointerPressed);
+    Clay_SetPointerState(
+        Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
+        g_uiState->pointerDown);
   });
 
   window->setMouseButtonCallback([](VeraMouseButton button, bool pressed) {
     if (!g_uiState)
       return;
     if (button == VeraMouseButton::Left) {
-      g_uiState->pointerPressed = pressed;
+      if (pressed) {
+        g_uiState->pointerPressed = true;
+        g_uiState->pointerDown = true;
+      } else {
+        g_uiState->pointerPressed = false;
+        g_uiState->pointerDown = false;
+      }
 
       Clay_SetPointerState(
           Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
-          g_uiState->pointerPressed);
+          g_uiState->pointerDown);
     }
   });
 
@@ -211,6 +246,8 @@ bool beginFrame(VeraWindow *window) {
       std::chrono::duration<float>(currentTime - session->lastTime).count();
   session->lastTime = currentTime;
 
+  atomic::AnimationManager::instance().update(session->lastDeltaTime);
+
   g_elementIdCounter = 0;
   auto clayDimensions = Clay_Dimensions{};
   clayDimensions.width = static_cast<float>(session->canvas->getWidth());
@@ -228,30 +265,74 @@ void endFrame(VeraWindow *window) {
     return;
 
   window::WindowSession *session = g_uiState->findSession(window);
-  if (session == nullptr)
+  if (!session)
     return;
 
   if (g_uiState->pointerPressed && !g_uiState->anyInputBoxHovered) {
     g_uiState->focusedElementId = 0;
   }
+
   Clay_RenderCommandArray renderCommands =
       Clay_EndLayout(session->lastDeltaTime);
 
   g_uiState->renderer->begin();
 
+  std::vector<Clay_BoundingBox> clipStack;
+  Clay_BoundingBox *currentClip = nullptr;
+
   for (int32_t i = 0; i < renderCommands.length; ++i) {
     Clay_RenderCommand *cmd = Clay_RenderCommandArray_Get(&renderCommands, i);
 
+    // Handle Clay Scissor / Clipping Commands
+    if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_SCISSOR_START) {
+      clipStack.push_back(cmd->boundingBox);
+      currentClip = &clipStack.back();
+      continue;
+    }
+    if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_SCISSOR_END) {
+      if (!clipStack.empty()) {
+        clipStack.pop_back();
+        currentClip = clipStack.empty() ? nullptr : &clipStack.back();
+      }
+      continue;
+    }
+
+    // Calculate Clay-space clip box
+    glm::vec4 activeClipRect;
+    if (currentClip) {
+      activeClipRect =
+          glm::vec4(std::round(currentClip->x), std::round(currentClip->y),
+                    std::round(currentClip->x + currentClip->width),
+                    std::round(currentClip->y + currentClip->height));
+    } else {
+      activeClipRect = glm::vec4(-10000.0f, -10000.0f, 200000.0f, 200000.0f);
+    }
+
+    // -------------------------------------------------------------
+    // Handle Rectangle Commands (Rounded to nearest pixel)
+    // -------------------------------------------------------------
     if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_RECTANGLE) {
       Clay_RectangleRenderData *rectData = &cmd->renderData.rectangle;
 
+      float elementScale = 1.0f;
+      float elementRotation = 0.0f;
+      float elementBlur = 0.0f;
+
+      if (cmd->userData != nullptr) {
+        auto *payload = static_cast<RenderPayload *>(cmd->userData);
+        elementScale = payload->scale;
+        elementRotation = payload->rotation;
+        elementBlur = payload->blur;
+      }
+
       avk::InstanceData instance{};
-      instance.rectXYWH =
-          glm::vec4(cmd->boundingBox.x, cmd->boundingBox.y,
-                    cmd->boundingBox.width, cmd->boundingBox.height);
+      // Snap position and size perfectly to the physical pixel grid!
+      instance.rectXYWH = glm::vec4(std::round(cmd->boundingBox.x),
+                                    std::round(cmd->boundingBox.y),
+                                    std::round(cmd->boundingBox.width),
+                                    std::round(cmd->boundingBox.height));
 
       instance.fillColorA = glm::vec4(rectData->backgroundColor.r / 255.0f,
-                                      // skip the frame.
                                       rectData->backgroundColor.g / 255.0f,
                                       rectData->backgroundColor.b / 255.0f,
                                       rectData->backgroundColor.a / 255.0f);
@@ -261,22 +342,40 @@ void endFrame(VeraWindow *window) {
                                         rectData->cornerRadius.bottomLeft,
                                         rectData->cornerRadius.bottomRight);
 
-      instance.shapeType = 0; // Rectangle
-      instance.fillType = 0;  // Solid
+      instance.clipRect = activeClipRect;
+      instance.shapeType = 0;
+      instance.fillType = 0;
       instance.strokeThickness = 0.0f;
-      instance.blur = 0.0f;
+      instance.blur = elementBlur;
+      instance.scale = elementScale;
+      instance.rotation = elementRotation;
 
       g_uiState->renderer->submit(instance);
-    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
+    }
+    // -------------------------------------------------------------
+    // Handle Border Commands (Rounded to nearest pixel)
+    // -------------------------------------------------------------
+    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
       Clay_BorderRenderData *borderData = &cmd->renderData.border;
 
-      avk::InstanceData instance{};
-      instance.rectXYWH =
-          glm::vec4(cmd->boundingBox.x, cmd->boundingBox.y,
-                    cmd->boundingBox.width, cmd->boundingBox.height);
+      float elementScale = 1.0f;
+      float elementRotation = 0.0f;
+      float elementBlur = 0.0f;
 
-      // Clay border width has top/bottom/left/right; using width.top for
-      // uniform SDF stroke
+      if (cmd->userData != nullptr) {
+        auto *payload = static_cast<RenderPayload *>(cmd->userData);
+        elementScale = payload->scale;
+        elementRotation = payload->rotation;
+        elementBlur = payload->blur;
+      }
+
+      avk::InstanceData instance{};
+      // Snap position and size perfectly to the physical pixel grid!
+      instance.rectXYWH = glm::vec4(std::round(cmd->boundingBox.x),
+                                    std::round(cmd->boundingBox.y),
+                                    std::round(cmd->boundingBox.width),
+                                    std::round(cmd->boundingBox.height));
+
       instance.strokeThickness = static_cast<float>(borderData->width.top);
 
       instance.strokeColor =
@@ -288,14 +387,20 @@ void endFrame(VeraWindow *window) {
                                         borderData->cornerRadius.bottomLeft,
                                         borderData->cornerRadius.bottomRight);
 
-      // Transparent background fill so only the border stroke renders
       instance.fillColorA = glm::vec4(0.0f);
-      instance.shapeType = 0; // Rectangle
-      instance.fillType = 0;  // Solid
-      instance.blur = 0.0f;
+      instance.clipRect = activeClipRect;
+      instance.shapeType = 0;
+      instance.fillType = 0;
+      instance.blur = elementBlur;
+      instance.scale = elementScale;
+      instance.rotation = elementRotation;
 
       g_uiState->renderer->submit(instance);
-    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE) {
+    }
+    // -------------------------------------------------------------
+    // Handle Image Commands (Rounded to nearest pixel)
+    // -------------------------------------------------------------
+    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE) {
       Clay_ImageRenderData *imageData = &cmd->renderData.image;
       auto *payload = static_cast<ImagePayload *>(cmd->userData);
 
@@ -305,14 +410,15 @@ void endFrame(VeraWindow *window) {
       if (payload != nullptr) {
         textureIndex = payload->textureIndex;
         tintColor = payload->tintColor;
-
         delete payload;
       }
 
       avk::InstanceData instance{};
-      instance.rectXYWH =
-          glm::vec4(cmd->boundingBox.x, cmd->boundingBox.y,
-                    cmd->boundingBox.width, cmd->boundingBox.height);
+      // Snap position and size perfectly to the physical pixel grid!
+      instance.rectXYWH = glm::vec4(std::round(cmd->boundingBox.x),
+                                    std::round(cmd->boundingBox.y),
+                                    std::round(cmd->boundingBox.width),
+                                    std::round(cmd->boundingBox.height));
 
       instance.fillColorA = glm::vec4(imageData->backgroundColor.r / 255.0f,
                                       imageData->backgroundColor.g / 255.0f,
@@ -326,14 +432,21 @@ void endFrame(VeraWindow *window) {
                                         imageData->cornerRadius.bottomLeft,
                                         imageData->cornerRadius.bottomRight);
 
+      instance.clipRect = activeClipRect;
       instance.shapeType = 0;
       instance.fillType = 4;
       instance.textureIndex = textureIndex;
       instance.strokeThickness = 0.0f;
       instance.blur = 0.0f;
+      instance.scale = 1.0f;
+      instance.rotation = 0.0f;
 
       g_uiState->renderer->submit(instance);
-    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
+    }
+    // -------------------------------------------------------------
+    // Handle Text Commands (Already rounded!)
+    // -------------------------------------------------------------
+    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
       Clay_TextRenderData *textData = &cmd->renderData.text;
 
       if (textData->fontId >= g_uiState->fonts.size()) {
@@ -371,12 +484,15 @@ void endFrame(VeraWindow *window) {
         instance.borderRadius = glm::vec4(0.0f);
         instance.fillColorA = textColor;
         instance.uvBounds = glyph.uvBounds;
+        instance.clipRect = activeClipRect;
 
         instance.shapeType = 0;
         instance.fillType = 3;
         instance.textureIndex = font.getTextureIndex();
         instance.strokeThickness = 0.0f;
         instance.blur = 0.0f;
+        instance.scale = 1.0f;
+        instance.rotation = 0.0f;
 
         g_uiState->renderer->submit(instance);
 
@@ -384,9 +500,10 @@ void endFrame(VeraWindow *window) {
       }
     }
   }
+
   session->canvas->endFrame(*g_uiState->renderer);
 
-  // reset
+  // Reset input states
   g_uiState->capturedChars.clear();
   g_uiState->backspacePressed = false;
   g_uiState->enterPressed = false;
@@ -394,6 +511,9 @@ void endFrame(VeraWindow *window) {
   g_uiState->deletePressed = false;
   g_uiState->leftArrowPressed = false;
   g_uiState->rightArrowPressed = false;
+  g_uiState->pointerPressed = false;
+  g_uiState->mouseWheelDeltaX = 0.0f;
+  g_uiState->mouseWheelDeltaY = 0.0f;
 }
 
 void resizeWindow(VeraWindow *window, uint32_t width, uint32_t height) {
@@ -422,7 +542,7 @@ uint32_t getHeight(VeraWindow *window) {
 uint32_t loadTexture(const std::string &path) {
   if (!g_uiState)
     return 0;
-  return g_uiState->context->getTextureManager()->loadTexture(path);
+  return g_uiState->context->getTextureManager()->loadTexture(getPath(path));
 }
 
 void unloadTexture(uint32_t textureIndex) {
@@ -430,6 +550,7 @@ void unloadTexture(uint32_t textureIndex) {
     return;
   g_uiState->context->getTextureManager()->unloadTexture(textureIndex);
 }
+
 avk::Font *getFont(uint32_t fontId) {
   if (!g_uiState || fontId >= g_uiState->fonts.size()) {
     return nullptr;

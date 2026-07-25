@@ -3,9 +3,15 @@
 #include "core/app/Types.h"
 #include "ui/color.h"
 #include "ui/components.h"
+#include <cstddef>
 #include <print>
+#include <string>
+#include <vector>
 
 std::string myTextBuffer = "";
+bool isOpen = false;
+size_t selectionIndex = 0;
+std::vector<std::string> possibles = {"jeff", "gordon", "cherno"};
 
 void drawUI(VeraWindow *window) {
   auto width = static_cast<float>(atomic::getWidth(window));
@@ -20,27 +26,38 @@ void drawUI(VeraWindow *window) {
              .gap(15),
          [&]() {
            Row(DefaultModifier()
-                   .background("#171717"_hex)
+                   .background("#17171700"_hex)
                    .size(width - 40.0f, 100.0f)
                    .rounded(12.0f)
                    .padding(10, 10)
                    .gap(10),
                [&]() {
-                 auto mybtn = Button("mybtn", DefaultModifier());
+                 auto mybtn = Button("button", DefaultModifier());
                  if (mybtn.hovered) {
                    // std::println("Hovered!\n");
                  }
-                 TextInput(DefaultModifier(), myTextBuffer, "placeholder...");
+                 TextInput(myTextBuffer, "placeholder...");
                });
 
            Column(DefaultModifier()
-                      .background("#171717"_hex)
+                      .background("#17171700"_hex)
                       .size(width - 40.0f, height - 180.0f)
                       .rounded(12.0f)
+                      .gap(5.0f)
                       .padding(15.0f, 15.0f),
                   [&]() {
-                    atomic::Text("Some extra content to test weather things "
-                                 "render properly for text");
+                    Text("active: " + possibles[selectionIndex]);
+                    Select(DefaultModifier(), isOpen, selectionIndex,
+                           possibles);
+                    ScrollView(
+                        DefaultModifier()
+                            .border(DEFAULT_BORDER_NORMAL, DEFAULT_BORDER_WIDTH)
+                            .size(200.0f, 200.0f),
+                        []() {
+                          for (int i = 0; i <= 50; i++) {
+                            Text("scroll to view more !");
+                          }
+                        });
                   });
          });
 }
@@ -70,6 +87,7 @@ int main() {
   bool isClosing = false;
   window->setCloseRequestCallback([&]() -> bool {
     isClosing = true;
+    app.destroyWindow(window);
     return true;
   });
 

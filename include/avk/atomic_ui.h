@@ -5,16 +5,41 @@
 #include "avk/avk_font.h"
 #include "clay.h"
 #include "core/app/Types.h"
+#include "glm/ext/vector_float2.hpp"
 #include "glm/fwd.hpp"
 #include "window/session.h"
 #include <algorithm>
+#include <cstdint>
 #include <functional>
 #include <glm/glm.hpp>
+#include <unordered_map>
 
 // Forward declare Vera structures
 class VeraWindow;
 
 namespace atomic {
+
+struct InputState {
+  uint32_t cursorPosition = 0;
+  uint32_t selectionStart = 0;
+  uint32_t selectionEnd = 0;
+  uint32_t selectionAnchor = 0;
+  bool isDraggingText = false;
+};
+/**
+ * @brief Persistent state block tracking scroll offsets and drag interactions.
+ */
+struct ScrollViewState {
+  float scrollOffsetX = 0.0f;
+  float scrollOffsetY = 0.0f;
+  float targetScrollOffsetX = 0.0f;
+  float targetScrollOffsetY = 0.0f;
+
+  // Interactive drag-to-scroll metrics
+  bool isDraggingY = false;
+  float dragStartY = 0.0f;
+  float dragStartScrollY = 0.0f;
+};
 
 struct UIState {
   std::unique_ptr<avk::VulkanContext> context;
@@ -26,6 +51,9 @@ struct UIState {
   bool pointerPressed = false;
   bool pointerDown = false;
   std::vector<std::unique_ptr<avk::Font>> fonts;
+  std::unordered_map<uint32_t, InputState> inputStateMap;
+  std::unordered_map<uint32_t, ScrollViewState> scrollViewStates;
+
   uint32_t defaultFontId = 0;
 
   uint32_t focusedElementId = 0; // 0 means no active focus
@@ -33,11 +61,10 @@ struct UIState {
   bool backspacePressed = false;
   bool enterPressed = false;
   bool anyInputBoxHovered = false;
+  float mouseWheelDeltaX = 0.0f;
+  float mouseWheelDeltaY = 0.0f;
 
-  uint32_t cursorPosition = 0;
   bool selectAll = false;
-  uint32_t selectionStart = 0;
-  uint32_t selectionEnd = 0;
   bool doingShiftSelect = false;
 
   bool deletePressed = false;
@@ -45,8 +72,6 @@ struct UIState {
   bool rightArrowPressed = false;
   bool ctrlPressed = false;
   bool shiftPressed = false;
-  bool isDraggingText = false;
-  float selectionAnchor = 0;
 
   window::WindowSession *findSession(VeraWindow *window) {
     auto result = std::find_if(sessions.begin(), sessions.end(),
@@ -56,6 +81,7 @@ struct UIState {
     return (result != sessions.end()) ? &(*result) : nullptr;
   }
 };
+
 bool isKeyboardCaptured();
 
 void clearKeyboardFocus();
@@ -72,6 +98,10 @@ struct ImagePayload {
 
 enum class AlignmentX : uint8_t { Left, Center, Right, SpaceBetween };
 enum class AlignmentY : uint8_t { Top, Center, Bottom, SpaceBetween };
+struct Alignment {
+  AlignmentX x = AlignmentX::Left;
+  AlignmentY y = AlignmentY::Top;
+};
 
 /**
  * @brief Chaining Modifier holding rendering and alignment styles.
@@ -93,9 +123,20 @@ struct Style {
   std::optional<uint16_t> padTop;
   std::optional<uint16_t> padBottom;
 
-  std::optional<uint16_t> childGap;
+  std::optional<uint16_t> childGap = 5.0f;
   std::optional<AlignmentX> alignX;
   std::optional<AlignmentY> alignY;
+
+  std::optional<float> scale;
+  std::optional<float> rotation;
+  std::optional<float> blur;
+};
+struct RenderPayload {
+  uint32_t textureIndex = 0;
+  glm::vec4 tintColor = glm::vec4(1.0f);
+  float scale = 1.0f;
+  float rotation = 0.0f;
+  float blur = 0.0f;
 };
 
 /**
@@ -105,8 +146,10 @@ struct Interaction {
   bool clicked = false;
   bool hovered = false;
   bool pressed = false;
+  // for select
+  bool changed = false;
 
-  explicit operator bool() const { return clicked; }
+  explicit operator bool() const { return clicked || changed; }
 };
 
 class Modifier {
@@ -115,6 +158,20 @@ public:
 
   Modifier background(const glm::vec4 &color) && {
     m_style.backgroundColor = color;
+    return std::move(*this);
+  }
+  Modifier scale(float s) && {
+    m_style.scale = s;
+    return std::move(*this);
+  }
+
+  Modifier rotation(float r) && {
+    m_style.rotation = r;
+    return std::move(*this);
+  }
+
+  Modifier blur(float b) && {
+    m_style.blur = b;
     return std::move(*this);
   }
 
@@ -179,6 +236,11 @@ public:
   Modifier center() && {
     m_style.alignX = AlignmentX::Center;
     m_style.alignY = AlignmentY::Center;
+    return std::move(*this);
+  }
+  Modifier childAlignment(Alignment alignement) {
+    m_style.alignX = alignement.x;
+    m_style.alignY = alignement.y;
     return std::move(*this);
   }
 

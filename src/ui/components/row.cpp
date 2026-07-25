@@ -13,10 +13,10 @@ void Row(Modifier &&modifier, const std::function<void()> &content) {
   // 1. Resolve safe optionals
   glm::vec4 bg =
       style.backgroundColor.value_or(glm::vec4(0.0f)); // Default transparent
-  glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
+  glm::vec4 radius = style.borderRadius.value_or(DEFAULT_BORDER_RADIUS);
 
-  glm::vec4 strokeColor = style.strokeColor.value_or("#ffffff1a"_hex);
-  float strokeWidth = style.strokeThickness.value_or(1.0f);
+  glm::vec4 strokeColor = style.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
+  float strokeWidth = style.strokeThickness.value_or(0.0f);
 
   Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_LEFT; // Default Left
   if (style.alignX.has_value()) {

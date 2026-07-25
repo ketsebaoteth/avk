@@ -131,7 +131,9 @@ VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat) {
       {14, 1, VK_FORMAT_R32_UINT, offsetof(InstanceData, fillType)},
       {15, 1, VK_FORMAT_R32_UINT, offsetof(InstanceData, textureIndex)},
       {16, 1, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(InstanceData, uvBounds)},
-      {17, 1, VK_FORMAT_R32_SFLOAT, offsetof(InstanceData, blur)}};
+      {17, 1, VK_FORMAT_R32_SFLOAT, offsetof(InstanceData, blur)},
+      {18, 1, VK_FORMAT_R32_SFLOAT, offsetof(InstanceData, scale)},
+      {19, 1, VK_FORMAT_R32_SFLOAT, offsetof(InstanceData, rotation)}};
 
   VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
   vertexInputInfo.sType =

@@ -1,9 +1,27 @@
+#include "animation/animation.h"
 #include "avk/atomic_ui.h"
 #include "ui/color.h"
 
 namespace atomic {
 
 inline const float DEFAULT_HEIGHT = 38.0f;
+inline const glm::vec4 DEFAULT_BACKGROUND_NORMAL = "#151515"_hex;
+inline const glm::vec4 DEFAULT_BORDER_NORMAL = "#2f2f2f"_hex;
+inline const glm::vec4 DEFAULT_BORDER_RADIUS = glm::vec4(6.0f);
+inline const float DEFAULT_BORDER_WIDTH = 1.0f;
+namespace Curves {
+
+inline const AnimationCurve AppleEaseOut =
+    AnimationCurve::Custom(0.16f, 1.00f, 0.30f, 1.00f);
+inline const AnimationCurve AppleSnappy =
+    AnimationCurve::Custom(0.19f, 1.00f, 0.22f, 1.00f);
+inline const AnimationCurve AppleEaseInOut =
+    AnimationCurve::Custom(0.42f, 0.00f, 0.58f, 1.00f);
+inline const AnimationCurve Emphasized =
+    AnimationCurve::Custom(0.05f, 0.70f, 0.10f, 1.00f);
+inline const AnimationCurve SmoothSwift =
+    AnimationCurve::Custom(0.40f, 0.00f, 0.20f, 1.00f);
+} // namespace Curves
 
 /*
  * @brief A basic Column component
@@ -58,7 +76,69 @@ inline Interaction Button(const std::string &label,
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                       const std::string &placeholder, uint32_t fontId);
 
-Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
-                      const std::string &placeholder);
+Interaction TextInput(std::string &textBuffer, const std::string &placeholder,
+                      Modifier &&modifier = DefaultModifier());
+
+enum class DropdownPlacement {
+  Smart,  // Radix UI / macOS style: centers dropdown over header at selected
+          // item
+  Bottom, // Standard dropdown below header
+  Top,    // Popup above header
+  Left,   // Popup to the left
+  Right   // Popup to the right
+};
+
+Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
+                   const std::vector<std::string> &options, uint32_t fontId,
+                   DropdownPlacement placement = DropdownPlacement::Smart);
+
+Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
+                   const std::vector<std::string> &options,
+                   DropdownPlacement placement = DropdownPlacement::Smart);
+
+/**
+ * @brief Rich styling and behavior configuration for ScrollViews.
+ */
+struct ScrollViewConfig {
+  bool smoothScrolling = true;
+  float smoothFactor = 0.05f;
+
+  // Visibility toggles
+  bool showVerticalBar = true;
+  bool showHorizontalBar = false;
+
+  // Detailed Scrollbar Customizations
+  float scrollbarWidth = 6.0f;  // Width of the vertical bar handle
+  float scrollbarRadius = 3.0f; // Corner rounding of the handle
+  float scrollbarMarginRight =
+      4.0f; // Spacing gap between handle and right container edge
+  float scrollbarMarginBottom =
+      4.0f; // Spacing gap between handle and bottom container edge
+  float scrollbarMinThumbSize = 24.0f; // Minimum physical height of the handle
+
+  // Dynamic, interactive scrollbar handle colors
+  glm::vec4 scrollbarColor =
+      glm::vec4(1.0f, 1.0f, 1.0f, 0.20f); // Default subtle white
+  glm::vec4 scrollbarColorHover =
+      glm::vec4(1.0f, 1.0f, 1.0f, 0.45f); // Brightens on hover
+  glm::vec4 scrollbarColorPressed =
+      glm::vec4(1.0f, 1.0f, 1.0f, 0.65f); // Glows while dragged
+};
+
+// Full version with explicit config
+void ScrollView(Modifier &&modifier, ScrollViewConfig config,
+                std::function<void()> contentCallback);
+
+// Convenience version using default config (most common usage)
+inline void ScrollView(Modifier &&modifier,
+                       std::function<void()> contentCallback) {
+  ScrollView(std::move(modifier), ScrollViewConfig{},
+             std::move(contentCallback));
+}
+
+// Convenience version with default modifier and default config
+inline void ScrollView(std::function<void()> contentCallback) {
+  ScrollView(DefaultModifier(), ScrollViewConfig{}, std::move(contentCallback));
+}
 
 } // namespace atomic
