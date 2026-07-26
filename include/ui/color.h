@@ -51,9 +51,8 @@ constexpr int charToHex(char c) {
 
 // Official IEC 61966-2-1 sRGB to Linear conversion
 inline float srgbToLinear(float c) {
-  if (c <= 0.04045f) {
+  if (c <= 0.04045f)
     return c / 12.92f;
-  }
   return std::pow((c + 0.055f) / 1.055f, 2.4f);
 }
 
@@ -141,6 +140,7 @@ inline const AtomicPalette red =
 
 inline const AtomicColor bajajGreen = detail_color::srgbColor(26, 153, 51);
 inline const AtomicColor soapBlue = detail_color::srgbColor(51, 128, 230);
+
 } // namespace Colors
 
 // -----------------------------------------------------------------
