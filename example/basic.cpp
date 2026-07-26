@@ -3,6 +3,7 @@
 #include "core/app/Types.h"
 #include "ui/color.h"
 #include "ui/components.h"
+#include "ui/lucide-icons.generated.h"
 #include <cstddef>
 #include <print>
 #include <string>
@@ -12,6 +13,8 @@ std::string myTextBuffer = "";
 bool isOpen = false;
 size_t selectionIndex = 0;
 std::vector<std::string> possibles = {"jeff", "gordon", "cherno"};
+static bool isLightActive = false;
+static bool isAgreed = false;
 
 void drawUI(VeraWindow *window) {
   auto width = static_cast<float>(atomic::getWidth(window));
@@ -19,47 +22,56 @@ void drawUI(VeraWindow *window) {
 
   using namespace atomic;
 
-  Column(DefaultModifier()
-             .background("#050505"_hex)
-             .size(width, height)
-             .padding(20, 20)
-             .gap(15),
-         [&]() {
-           Row(DefaultModifier()
-                   .background("#17171700"_hex)
-                   .size(width - 40.0f, 100.0f)
-                   .rounded(12.0f)
-                   .padding(10, 10)
-                   .gap(10),
-               [&]() {
-                 auto mybtn = Button("button", DefaultModifier());
-                 if (mybtn.hovered) {
-                   // std::println("Hovered!\n");
-                 }
-                 TextInput(myTextBuffer, "placeholder...");
-               });
+  Column(
+      DefaultModifier()
+          .background("#050505"_hex)
+          .size(width, height)
+          .padding(20, 20)
+          .gap(15),
+      [&]() {
+        Row(DefaultModifier()
+                .background("#17171700"_hex)
+                .size(width - 40.0f, 100.0f)
+                .rounded(12.0f)
+                .padding(10, 10)
+                .gap(10),
+            [&]() {
+              auto mybtn = Button(
+                  "button", DefaultModifier().absolute().pointerEvents(true));
+              if (mybtn.hovered) {
+                // std::println("Hovered!\n");
+              }
+              TextInput(myTextBuffer, "placeholder...");
+            });
 
-           Column(DefaultModifier()
-                      .background("#17171700"_hex)
-                      .size(width - 40.0f, height - 180.0f)
-                      .rounded(12.0f)
-                      .gap(5.0f)
-                      .padding(15.0f, 15.0f),
-                  [&]() {
-                    Text("active: " + possibles[selectionIndex]);
-                    Select(DefaultModifier(), isOpen, selectionIndex,
-                           possibles);
-                    ScrollView(
-                        DefaultModifier()
-                            .border(DEFAULT_BORDER_NORMAL, DEFAULT_BORDER_WIDTH)
-                            .size(200.0f, 200.0f),
-                        []() {
-                          for (int i = 0; i <= 50; i++) {
-                            Text("scroll to view more !");
-                          }
-                        });
-                  });
-         });
+        Column(DefaultModifier()
+                   .background("#17171700"_hex)
+                   .size(width - 40.0f, height - 180.0f)
+                   .rounded(12.0f)
+                   .gap(5.0f)
+                   .padding(15.0f, 15.0f),
+               [&]() {
+                 Text("active: " + possibles[selectionIndex]);
+                 Select(DefaultModifier(), isOpen, selectionIndex, possibles);
+                 ScrollView(
+                     DefaultModifier()
+                         .relative()
+                         .border(DEFAULT_BORDER_NORMAL, DEFAULT_BORDER_WIDTH)
+                         .size(200.0f, 200.0f),
+                     []() {
+                       for (int i = 0; i <= 10; i++) {
+                         Text("scroll around");
+                       }
+                     });
+                 Switch(DefaultModifier(), isLightActive);
+                 if (isLightActive) {
+                   Text("islight is on");
+                 } else {
+                   Text("oh its off");
+                 }
+                 Checkbox(DefaultModifier(), isAgreed);
+               });
+      });
 }
 
 int main() {
@@ -87,6 +99,7 @@ int main() {
   bool isClosing = false;
   window->setCloseRequestCallback([&]() -> bool {
     isClosing = true;
+    atomic::unregisterWindow(window);
     app.destroyWindow(window);
     return true;
   });

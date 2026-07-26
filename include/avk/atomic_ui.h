@@ -10,7 +10,6 @@
 #include "window/session.h"
 #include <algorithm>
 #include <cstdint>
-#include <functional>
 #include <glm/glm.hpp>
 #include <unordered_map>
 
@@ -40,12 +39,23 @@ struct ScrollViewState {
   float dragStartY = 0.0f;
   float dragStartScrollY = 0.0f;
 };
-
+struct RenderPayload {
+  uint32_t textureIndex = 0;
+  glm::vec4 tintColor = glm::vec4(1.0f);
+  float scale = 1.0f;
+  float rotation = 0.0f;
+  float blur = 0.0f;
+  glm::vec2 transformOrigin = glm::vec2(0.5f, 0.5f);
+  glm::vec2 translate = glm::vec2(0.0f, 0.0f);
+  float textOffset = 0.0f;
+};
 struct UIState {
   std::unique_ptr<avk::VulkanContext> context;
   std::unique_ptr<avk::Renderer> renderer;
   void *clayArenaMemory = nullptr;
   std::vector<window::WindowSession> sessions;
+  std::vector<std::unique_ptr<RenderPayload>> framePayloads;
+  std::vector<uint32_t> positioningContextStack;
 
   glm::vec2 pointerPos = glm::vec2(0.0f);
   bool pointerPressed = false;
@@ -55,6 +65,8 @@ struct UIState {
   std::unordered_map<uint32_t, ScrollViewState> scrollViewStates;
 
   uint32_t defaultFontId = 0;
+  std::array<uint32_t, 5> defaultIconFontIds;
+  std::unordered_map<std::string, uint32_t> iconMap;
 
   uint32_t focusedElementId = 0; // 0 means no active focus
   std::vector<uint32_t> capturedChars;
@@ -81,7 +93,7 @@ struct UIState {
     return (result != sessions.end()) ? &(*result) : nullptr;
   }
 };
-
+uint32_t getClosestIconFontId(float requestedSize);
 bool isKeyboardCaptured();
 
 void clearKeyboardFocus();
@@ -103,6 +115,16 @@ struct Alignment {
   AlignmentY y = AlignmentY::Top;
 };
 
+enum class Position : uint8_t {
+  Normal,   // Standard layout flow (like CSS static)
+  Relative, // Layout flow, but establishes positioning context for absolute
+            // children
+  Absolute, // out-of-flow, positioned relative to nearest Relative/Absolute
+            // parent or window
+  Fixed     // out-of-flow, strictly positioned relative to the window viewport
+            // (0,0)
+};
+
 /**
  * @brief Chaining Modifier holding rendering and alignment styles.
  */
@@ -122,6 +144,7 @@ struct Style {
   std::optional<uint16_t> padRight;
   std::optional<uint16_t> padTop;
   std::optional<uint16_t> padBottom;
+  std::optional<bool> pointerEvents;
 
   std::optional<uint16_t> childGap = 5.0f;
   std::optional<AlignmentX> alignX;
@@ -130,13 +153,17 @@ struct Style {
   std::optional<float> scale;
   std::optional<float> rotation;
   std::optional<float> blur;
-};
-struct RenderPayload {
-  uint32_t textureIndex = 0;
-  glm::vec4 tintColor = glm::vec4(1.0f);
-  float scale = 1.0f;
-  float rotation = 0.0f;
-  float blur = 0.0f;
+
+  std::optional<Position> position;
+  std::optional<float> left;
+  std::optional<float> right;
+  std::optional<float> top;
+  std::optional<float> bottom;
+
+  // NEW: Transform modifications
+  std::optional<glm::vec2> transformOrigin; // Default (0.5, 0.5) for Center
+  std::optional<glm::vec2> translate;       // post-layout pixel offsets (x, y)
+  std::optional<uint32_t> parentId;
 };
 
 /**
@@ -169,7 +196,56 @@ public:
     m_style.rotation = r;
     return std::move(*this);
   }
+  Modifier pointerEvents(bool capture) && {
+    m_style.pointerEvents = capture;
+    return std::move(*this);
+  }
 
+  Modifier relative() && {
+    m_style.position = Position::Relative;
+    return std::move(*this);
+  }
+  Modifier absolute() && {
+    m_style.position = Position::Absolute;
+    return std::move(*this);
+  }
+
+  // Sets position mode to Fixed (relative strictly to the screen viewport)
+  Modifier fixed() && {
+    m_style.position = Position::Fixed;
+    return std::move(*this);
+  }
+
+  // Individual CSS positioning properties
+  Modifier left(float val) && {
+    m_style.left = val;
+    return std::move(*this);
+  }
+
+  Modifier right(float val) && {
+    m_style.right = val;
+    return std::move(*this);
+  }
+
+  Modifier top(float val) && {
+    m_style.top = val;
+    return std::move(*this);
+  }
+
+  Modifier bottom(float val) && {
+    m_style.bottom = val;
+    return std::move(*this);
+  }
+
+  Modifier transformOrigin(float x, float y) && {
+    m_style.transformOrigin = glm::vec2(x, y);
+    return std::move(*this);
+  }
+
+  Modifier translate(float x, float y) && {
+    m_style.translate = glm::vec2(x, y);
+    return std::move(*this);
+  }
   Modifier blur(float b) && {
     m_style.blur = b;
     return std::move(*this);
@@ -272,5 +348,8 @@ void unloadTexture(uint32_t textureIndex);
 avk::Font *getFont(uint32_t fontId);
 uint32_t getDefaultFontId();
 uint32_t loadFont(const std::string &path, uint32_t fontSize);
+// overload to load with codepoints
+uint32_t loadFont(const std::string &path, uint32_t fontSize,
+                  const std::vector<uint32_t> &codepoints);
 
 } // namespace atomic

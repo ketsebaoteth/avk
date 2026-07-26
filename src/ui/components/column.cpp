@@ -8,57 +8,32 @@ namespace atomic {
 void Column(Modifier &&modifier, const std::function<void()> &content) {
   const auto &style = modifier.getStyle();
 
-  Clay__OpenElementWithId(utils::layout::getNextId("Column"));
+  Clay_ElementId columnId = utils::layout::getNextId("Column");
+  Clay__OpenElementWithId(columnId);
 
-  // 1. Resolve safe optionals
-  glm::vec4 bg =
-      style.backgroundColor.value_or(glm::vec4(0.0f)); // Default transparent
+  glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(0.0f));
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
-
   glm::vec4 strokeColor = style.strokeColor.value_or("#ffffff1a"_hex);
   float strokeWidth = style.strokeThickness.value_or(1.0f);
 
-  Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_LEFT; // Default Left
-  if (style.alignX.has_value()) {
-    switch (style.alignX.value()) {
-    case AlignmentX::Center:
-      clayAlignX = CLAY_ALIGN_X_CENTER;
-      break;
-    case AlignmentX::Right:
-      clayAlignX = CLAY_ALIGN_X_RIGHT;
-      break;
-    default:
-      clayAlignX = CLAY_ALIGN_X_LEFT;
-      break;
-    }
-  }
-
-  Clay_LayoutAlignmentY clayAlignY = CLAY_ALIGN_Y_TOP; // Default Top
-  if (style.alignY.has_value()) {
-    switch (style.alignY.value()) {
-    case AlignmentY::Center:
-      clayAlignY = CLAY_ALIGN_Y_CENTER;
-      break;
-    case AlignmentY::Bottom:
-      clayAlignY = CLAY_ALIGN_Y_BOTTOM;
-      break;
-    default:
-      clayAlignY = CLAY_ALIGN_Y_TOP;
-      break;
-    }
-  }
+  Clay_LayoutAlignmentX clayAlignX =
+      style.alignX.has_value() && style.alignX.value() == AlignmentX::Center
+          ? CLAY_ALIGN_X_CENTER
+      : style.alignX.has_value() && style.alignX.value() == AlignmentX::Right
+          ? CLAY_ALIGN_X_RIGHT
+          : CLAY_ALIGN_X_LEFT;
+  Clay_LayoutAlignmentY clayAlignY =
+      style.alignY.has_value() && style.alignY.value() == AlignmentY::Center
+          ? CLAY_ALIGN_Y_CENTER
+      : style.alignY.has_value() && style.alignY.value() == AlignmentY::Bottom
+          ? CLAY_ALIGN_Y_BOTTOM
+          : CLAY_ALIGN_Y_TOP;
 
   Clay_ElementDeclaration decl{};
   decl.layout = {
-      .sizing = {.width = style.width.has_value()
-                              ? CLAY_SIZING_FIXED(style.width.value())
-                              : CLAY_SIZING_GROW(), // Default GROW
-                 .height = style.height.has_value()
-                               ? CLAY_SIZING_FIXED(style.height.value())
-                               : CLAY_SIZING_GROW()},
-      .padding = {style.padLeft.value_or(0), style.padRight.value_or(0),
-                  style.padTop.value_or(0), style.padBottom.value_or(0)},
-      .childGap = style.childGap.value_or(0),
+      .sizing = {.width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW()},
+      .padding = {0, 0, 0, 0},
+      .childGap = 0,
       .childAlignment = {.x = clayAlignX, .y = clayAlignY},
       .layoutDirection = CLAY_TOP_TO_BOTTOM};
 
@@ -73,9 +48,22 @@ void Column(Modifier &&modifier, const std::function<void()> &content) {
                    .width = {w, w, w, w}};
   }
 
+  // 1-LINE SYSTEM HOOK: Auto-maps custom sizing, absolute coordinates, and
+  // padding overrides
+  utils::layout::applyStyleToLayout(decl, style);
+
+  // CONTEXT GUARD: Establishes a relative/absolute positioning context for all
+  // nested children
+  auto pos = style.position.value_or(Position::Normal);
+  utils::layout::PositioningContextGuard guard(columnId.id, pos);
+
+  decl.userData = utils::layout::createFramePayload(style);
+
   Clay__ConfigureOpenElement(decl);
 
-  content();
+  if (content) {
+    content();
+  }
 
   Clay__CloseElement();
 }

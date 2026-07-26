@@ -1,6 +1,5 @@
 #version 450
 
-// Enable Vulkan Descriptor Indexing extension for dynamic array indexing
 #extension GL_EXT_nonuniform_qualifier : enable
 
 layout(location = 0) in vec2 inPixelPos;
@@ -18,7 +17,7 @@ layout(location = 11) flat in vec4 inClipRect;
 layout(location = 12) flat in float inStrokeThickness;
 layout(location = 13) flat in uint inShapeType;
 layout(location = 14) flat in uint inFillType;
-layout(location = 15) flat in uint inTextureIndex; // Dynamic index pointing to globalTextures
+layout(location = 15) flat in uint inTextureIndex; 
 layout(location = 16) flat in vec4 inUvBounds;
 layout(location = 17) flat in float inBlur;
 layout(location = 18) flat in float inScale;
@@ -26,17 +25,16 @@ layout(location = 19) flat in float inRotation;
 
 layout(location = 0) out vec4 outColor;
 
-// Declare our boundless array of samplers. 
 layout(binding = 0) uniform sampler2D globalTextures[];
 
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
-    float radius = r.x; // default topLeft
+    float radius = r.x; 
     if (p.x > 0.0 && p.y < 0.0) {
-        radius = r.y; // topRight
+        radius = r.y; 
     } else if (p.x < 0.0 && p.y > 0.0) {
-        radius = r.z; // bottomLeft
+        radius = r.z; 
     } else if (p.x > 0.0 && p.y > 0.0) {
-        radius = r.w; // bottomRight
+        radius = r.w; 
     }
     
     vec2 q = abs(p) - b + vec2(radius);
@@ -74,7 +72,6 @@ void main() {
     vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
     vec2 halfSize = inRectXYWH.zw * 0.5;
 
-    // Transform screen pixel position back into local unscaled/unrotated space
     vec2 pScreen = inPixelPos - center;
     float c = cos(inRotation);
     float s = sin(inRotation);
@@ -83,24 +80,21 @@ void main() {
 
     float d = 0.0;
     
-    if (inShapeType == 0) { // Rectangle / Rounded Rectangle
+    if (inShapeType == 0) { 
         d = sdRoundedBox(p, halfSize, inBorderRadius);
-        
-    } else if (inShapeType == 1) { // Circle
+    } else if (inShapeType == 1) { 
         d = sdCircle(p, min(halfSize.x, halfSize.y));
-        
-    } else if (inShapeType == 2) { // Line
+    } else if (inShapeType == 2) { 
         vec2 localA = invRot * (inRectXYWH.xy - center) / max(inScale, 0.0001);
         vec2 localB = invRot * (inRectXYWH.zw - center) / max(inScale, 0.0001);
         d = sdSegment(p, localA, localB) - inStrokeThickness * 0.5;
-        
-    } else if (inShapeType == 3) { // Polygon (Regular N-gon)
+    } else if (inShapeType == 3) { 
         int numSides = int(max(float(inTextureIndex), 3.0));
         d = sdRegularPolygon(p, min(halfSize.x, halfSize.y), numSides);
     }
 
     vec4 fillColor = inFillColorA;
-    if (inFillType == 1) { // Linear gradient
+    if (inFillType == 1) { 
         vec2 dir = inGradientEnd - inGradientStart;
         float lenSq = dot(dir, dir);
         if (lenSq > 0.0001) {
@@ -109,43 +103,37 @@ void main() {
             float t = clamp(dot(normCoord - inGradientStart, dir) / lenSq, 0.0, 1.0);
             fillColor = mix(inFillColorA, inFillColorB, t);
         }
-    } else if (inFillType == 2) { // Radial gradient
+    } else if (inFillType == 2) { 
         float dist = distance(p, vec2(0.0)) / length(halfSize);
         fillColor = mix(inFillColorA, inFillColorB, clamp(dist, 0.0, 1.0));
-    } else if (inFillType == 3) { // Text
-        float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV).r;
+} else if (inFillType == 3) { 
+        vec2 safeUV = clamp(inUV, inUvBounds.xy, inUvBounds.zw);
+        float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], safeUV).r;
         outColor = vec4(inFillColorA.rgb, inFillColorA.a * textAlpha);
         if (outColor.a < 0.001) {
             discard;
         }
-        return;  
-    } else if (inFillType == 4) { // ImageTexture
+        return;
+    } else if (inFillType == 4) { 
         vec4 texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV);
         vec4 tintedTex = texColor * inFillColorB;
         fillColor = mix(inFillColorA, tintedTex, tintedTex.a);
     }
 
-    // -----------------------------------------------------------------
-    // LINEAR COVERAGE ANTI-ALIASING (CSS / SKIA TRICK)
-    // -----------------------------------------------------------------
     float aaWidth = (max(fwidth(d), 0.0001) + inBlur) * max(inScale, 0.0001);
-    
     float alpha = clamp(0.5 - d / aaWidth, 0.0, 1.0);
 
-    if (inShapeType == 2) { // Line
+    if (inShapeType == 2) { 
         outColor = vec4(fillColor.rgb, fillColor.a * alpha);
     } else {
         if (inStrokeThickness > 0.0) {
             float innerD = d + inStrokeThickness;
             float innerAlpha = clamp(0.5 - innerD / aaWidth, 0.0, 1.0);
-
-            // Isolate stroke ring
             float strokeMask = clamp(alpha - innerAlpha, 0.0, 1.0);
 
             vec4 stroke = vec4(inStrokeColor.rgb, inStrokeColor.a * strokeMask);
             vec4 fill = vec4(fillColor.rgb, fillColor.a * innerAlpha);
 
-            // Standard source-over blending
             float finalAlpha = fill.a + stroke.a * (1.0 - fill.a);
             vec3 finalRgb = (finalAlpha > 0.0001)
                 ? (fill.rgb * fill.a + stroke.rgb * stroke.a * (1.0 - fill.a)) / finalAlpha

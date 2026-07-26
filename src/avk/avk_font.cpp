@@ -13,7 +13,7 @@
 namespace avk {
 
 Font::Font(VulkanContext *context, const std::string &filePath,
-           uint32_t fontSize)
+           uint32_t fontSize, const std::vector<uint32_t> &codepoints)
     : m_context(context) {
   if (!m_context || !m_context->isValid()) {
     std::cerr << "avk: Cannot load Font with an invalid VulkanContext."
@@ -21,7 +21,7 @@ Font::Font(VulkanContext *context, const std::string &filePath,
     return;
   }
 
-  if (!buildAtlas(filePath, fontSize)) {
+  if (!buildAtlas(filePath, fontSize, codepoints)) {
     std::cerr << "avk: Failed to construct Font Atlas for: " << filePath
               << std::endl;
   }
@@ -42,15 +42,13 @@ Font &Font::operator=(Font &&other) noexcept {
     m_lineHeight = other.m_lineHeight;
     m_ascent = other.m_ascent;
     m_fontSize = other.m_fontSize;
-    std::copy(std::begin(other.m_glyphs), std::end(other.m_glyphs),
-              std::begin(m_glyphs));
+    m_glyphs = std::move(other.m_glyphs);
+    m_fallbackGlyph = other.m_fallbackGlyph;
 
     other.m_context = nullptr;
     other.m_atlasView = VK_NULL_HANDLE;
     other.m_textureIndex = 0;
     other.m_lineHeight = 0.0f;
-    other.m_ascent = 0.0f;
-    other.m_fontSize = 0.0f;
   }
   return *this;
 }
@@ -59,18 +57,44 @@ void Font::release() {
   if (m_context == nullptr)
     return;
 
+  VkDevice device = m_context->getDevice();
+  if (device == VK_NULL_HANDLE)
+    return;
+
   if (m_textureIndex != 0) {
     m_context->getTextureManager()->unloadTexture(m_textureIndex);
     m_textureIndex = 0;
   }
 }
 
+static uint32_t decodeNextUtf8(const std::string &str, uint32_t &index) {
+  if (index >= str.size())
+    return 0;
+  unsigned char c = str[index++];
+  if (c < 0x80)
+    return c;
+  if ((c & 0xE0) == 0xC0) {
+    uint32_t res = (c & 0x1F) << 6;
+    res |= (static_cast<unsigned char>(str[index++]) & 0x3F);
+    return res;
+  }
+  if ((c & 0xF0) == 0xE0) {
+    uint32_t res = (c & 0x0F) << 12;
+    res |= (static_cast<unsigned char>(str[index++]) & 0x3F) << 6;
+    res |= (static_cast<unsigned char>(str[index++]) & 0x3F);
+    return res;
+  }
+  return c;
+}
+
 glm::vec2 Font::measureText(const std::string &text) const {
   float width = 0.0f;
   float maxHeight = 0.0f;
 
-  for (char c : text) {
-    const Glyph &glyph = getGlyph(c);
+  uint32_t index = 0;
+  while (index < text.size()) {
+    uint32_t codepoint = decodeNextUtf8(text, index);
+    const Glyph &glyph = getGlyph(codepoint);
     width += glyph.advance;
     maxHeight = std::max(maxHeight, glyph.size.y);
   }
@@ -78,52 +102,59 @@ glm::vec2 Font::measureText(const std::string &text) const {
   return glm::vec2(width, maxHeight);
 }
 
-bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
+bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize,
+                      const std::vector<uint32_t> &codepoints) {
   FT_Library ft = nullptr;
   if (FT_Init_FreeType(&ft)) {
-    std::cerr << "avk: Failed to initialize FreeType." << std::endl;
     return false;
   }
 
   FT_Face face = nullptr;
   if (FT_New_Face(ft, filePath.c_str(), 0, &face)) {
-    std::cerr << "avk: Failed to load font file: " << filePath << std::endl;
     FT_Done_FreeType(ft);
     return false;
   }
 
-  // set target pixel height
   FT_Set_Pixel_Sizes(face, 0, fontSize);
 
-  // Calculate the scale metrics
   m_lineHeight = static_cast<float>(face->size->metrics.height >> 6);
   m_ascent = static_cast<float>(face->size->metrics.ascender >> 6);
   m_fontSize = fontSize;
 
+  std::vector<uint32_t> targets = codepoints;
+  if (targets.empty()) {
+    targets.reserve(95);
+    for (uint32_t i = 32; i < 127; ++i) {
+      targets.push_back(i);
+    }
+  }
+
+  uint32_t glyphPadding = 2; // Tighter padding for standard bitmap layouts
   uint32_t atlasWidth = 512;
   uint32_t currentX = 0;
   uint32_t currentY = 0;
   uint32_t rowHeight = 0;
 
-  for (uint8_t i = 32; i < 127; ++i) {
-    if (FT_Load_Char(face, i, FT_LOAD_RENDER | FT_LOAD_TARGET_LIGHT)) {
+  for (uint32_t cp : targets) {
+    // Load and render using standard anti-aliased FT_RENDER_MODE_NORMAL
+    if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) {
       continue;
     }
 
     uint32_t w = face->glyph->bitmap.width;
     uint32_t h = face->glyph->bitmap.rows;
 
-    if (currentX + w + 1 >= atlasWidth) {
+    if (currentX + w + glyphPadding >= atlasWidth) {
       currentX = 0;
-      currentY += rowHeight + 1;
+      currentY += rowHeight + glyphPadding;
       rowHeight = 0;
     }
 
     rowHeight = std::max(rowHeight, h);
-    currentX += w + 1;
+    currentX += w + glyphPadding;
   }
 
-  uint32_t atlasHeight = currentY + rowHeight + 1;
+  uint32_t atlasHeight = currentY + rowHeight + glyphPadding;
   atlasHeight = (atlasHeight + 3) & ~3;
 
   std::vector<uint8_t> atlasBuffer(atlasWidth * atlasHeight, 0);
@@ -132,8 +163,8 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
   currentY = 0;
   rowHeight = 0;
 
-  for (uint8_t i = 32; i < 127; ++i) {
-    if (FT_Load_Char(face, i, FT_LOAD_RENDER)) {
+  for (uint32_t cp : targets) {
+    if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) {
       continue;
     }
 
@@ -141,13 +172,12 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
     uint32_t w = bitmap.width;
     uint32_t h = bitmap.rows;
 
-    if (currentX + w + 1 >= atlasWidth) {
+    if (currentX + w + glyphPadding >= atlasWidth) {
       currentX = 0;
-      currentY += rowHeight + 1;
+      currentY += rowHeight + glyphPadding;
       rowHeight = 0;
     }
 
-    // Copy pixel rows into flat buffer
     for (uint32_t r = 0; r < h; ++r) {
       for (uint32_t c = 0; c < w; ++c) {
         atlasBuffer[(currentY + r) * atlasWidth + (currentX + c)] =
@@ -155,7 +185,7 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
       }
     }
 
-    Glyph &glyph = m_glyphs[i];
+    Glyph glyph{};
     glyph.size = glm::vec2(static_cast<float>(w), static_cast<float>(h));
     glyph.bearing = glm::vec2(static_cast<float>(face->glyph->bitmap_left),
                               static_cast<float>(face->glyph->bitmap_top));
@@ -167,13 +197,16 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
         static_cast<float>(currentX + w) / static_cast<float>(atlasWidth),
         static_cast<float>(currentY + h) / static_cast<float>(atlasHeight));
 
+    m_glyphs[cp] = glyph;
+
     rowHeight = std::max(rowHeight, h);
-    currentX += w + 1;
+    currentX += w + glyphPadding;
   }
 
-  // Clean up FreeType loader
   FT_Done_Face(face);
   FT_Done_FreeType(ft);
+
+  m_fallbackGlyph = m_glyphs[63];
 
   VkDeviceSize bufferSize = atlasWidth * atlasHeight;
 
@@ -184,7 +217,6 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
   std::memcpy(stagingBuffer.getMappedData(), atlasBuffer.data(), bufferSize);
 
-  // Create target device-optimal R8_UNORM image
   VkImageCreateInfo imageInfo{};
   imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -193,7 +225,7 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
   imageInfo.extent.depth = 1;
   imageInfo.mipLevels = 1;
   imageInfo.arrayLayers = 1;
-  imageInfo.format = VK_FORMAT_R8_UNORM; // 1 byte alpha format
+  imageInfo.format = VK_FORMAT_R8_UNORM;
   imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   imageInfo.usage =
@@ -204,7 +236,6 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
   m_atlasImage = m_context->getAllocator()->createImage(
       imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
-  // Record copy and transition command list
   VkDevice device = m_context->getDevice();
   VkQueue graphicsQueue = m_context->getGraphicsQueue();
 
@@ -229,7 +260,6 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
   beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   vkBeginCommandBuffer(cmd, &beginInfo);
 
-  // Transition 1: UNDEFINED -> TRANSFER_DST_OPTIMAL
   VkImageMemoryBarrier barrier{};
   barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
   barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -261,7 +291,6 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
                          m_atlasImage.getImage(),
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-  // Transition 2: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
   barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
   barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -290,7 +319,6 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
   vkDestroyCommandPool(device, tempPool, nullptr);
   stagingBuffer.destroy();
 
-  // 5. Create ImageView wrapper
   VkImageViewCreateInfo viewInfo{};
   viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   viewInfo.image = m_atlasImage.getImage();
@@ -304,11 +332,12 @@ bool Font::buildAtlas(const std::string &filePath, uint32_t fontSize) {
 
   if (vkCreateImageView(device, &viewInfo, nullptr, &m_atlasView) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to build ImageView for Font Atlas." << std::endl;
     m_atlasImage.destroy();
     return false;
   }
 
+  // Registers the font atlas utilizing our sharp VK_FILTER_NEAREST
+  // point-sampler!
   m_textureIndex = m_context->getTextureManager()->registerTexture(
       std::move(m_atlasImage), m_atlasView,
       m_context->getTextureManager()->getFontSampler());

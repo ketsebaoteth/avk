@@ -45,6 +45,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
         uiState->pointerPos, headerData.boundingBox, radius);
   }
 
+  // SNAPPY CLICK TOGGLE: Evaluates clicks on our stable pointerPressed frame
   bool headerClicked = isHovered && uiState->pointerPressed;
   if (headerClicked) {
     isOpen = !initialIsOpen;
@@ -89,23 +90,14 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
     }
   }
 
-  Clay_Sizing sizing{};
-  sizing.width = style.width.has_value()
-                     ? CLAY_SIZING_FIXED(style.width.value())
-                     : CLAY_SIZING_FIT();
-
-  sizing.height = style.height.has_value()
-                      ? CLAY_SIZING_FIXED(style.height.value())
-                      : CLAY_SIZING_FIXED(DEFAULT_HEIGHT);
-
   Clay_ElementDeclaration decl{};
-  decl.layout = {
-      .sizing = sizing,
-      .padding = {style.padLeft.value_or(14), style.padRight.value_or(14),
-                  style.padTop.value_or(8), style.padBottom.value_or(8)},
-      .childGap = style.childGap.value_or(0),
-      .childAlignment = {.x = clayAlignX, .y = clayAlignY},
-      .layoutDirection = CLAY_LEFT_TO_RIGHT};
+  // Constant layout defaults inside C++
+  decl.layout = {.sizing = {.width = CLAY_SIZING_FIT(),
+                            .height = CLAY_SIZING_FIXED(DEFAULT_HEIGHT)},
+                 .padding = {14, 14, 8, 8},
+                 .childGap = style.childGap.value_or(0),
+                 .childAlignment = {.x = clayAlignX, .y = clayAlignY},
+                 .layoutDirection = CLAY_LEFT_TO_RIGHT};
 
   decl.border = {.color =
                      Clay_Color{strokeColor.r * 255.0f, strokeColor.g * 255.0f,
@@ -114,6 +106,10 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                            static_cast<uint16_t>(strokeWidth),
                            static_cast<uint16_t>(strokeWidth),
                            static_cast<uint16_t>(strokeWidth)}};
+
+  // 2-ARG SYSTEM HOOK: Apply width/height overrides and absolute floating
+  // properties!
+  utils::layout::applyStyleToLayout(decl, style);
 
   glm::vec4 targetHeaderBg = baseBg;
   if (isPressed) {
@@ -137,6 +133,9 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
       animatedHeaderBg.b * 255.0f, animatedHeaderBg.a * 255.0f};
   decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
 
+  // Safe frame allocation - zero memory leak!
+  decl.userData = utils::layout::createFramePayload(style);
+
   Clay__ConfigureOpenElement(decl);
 
   float chevronAlpha = AnimateFloat(selectHeaderId.id + 0x2000,
@@ -148,9 +147,9 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
           .gap(10)
           .childAlignment({.y = AlignmentY::Center}),
       [&]() {
-        // Container to perform the invisible sizing trick
-        Clay_ElementId textContainerId =
-            utils::layout::getNextId("SelectTextContainer");
+        // Hash "TextContainer" with parent ID to keep layout indexes stable
+        Clay_ElementId textContainerId = Clay__HashString(
+            Clay_String{false, 13, "TextContainer"}, selectHeaderId.id);
         Clay__OpenElementWithId(textContainerId);
 
         Clay_ElementDeclaration tcDecl{};
@@ -161,21 +160,21 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
             .layoutDirection = CLAY_LEFT_TO_RIGHT};
         Clay__ConfigureOpenElement(tcDecl);
 
-        // Invisible longest text stretches the layout predictably
+        // Invisible longest text stretches layout predictably
         Text(longestOption, fontId, DefaultModifier().color(glm::vec4(0.0f)));
 
-        // The actual selected text floats on top
-        Clay_ElementId visibleTextId =
-            utils::layout::getNextId("SelectVisibleText");
+        // Hash "VisibleText" with parent ID to keep layout indexes stable
+        Clay_ElementId visibleTextId = Clay__HashString(
+            Clay_String{false, 11, "VisibleText"}, selectHeaderId.id);
         Clay__OpenElementWithId(visibleTextId);
 
         Clay_ElementDeclaration vtDecl{};
-        vtDecl.floating = {
-            .parentId = textContainerId.id,
-            .attachPoints = {.element = CLAY_ATTACH_POINT_LEFT_CENTER,
-                             .parent = CLAY_ATTACH_POINT_LEFT_CENTER},
-            .attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID,
-        };
+        // Directly modify fields of the value member!
+        vtDecl.floating.parentId = textContainerId.id;
+        vtDecl.floating.attachPoints = {
+            .element = CLAY_ATTACH_POINT_LEFT_CENTER,
+            .parent = CLAY_ATTACH_POINT_LEFT_CENTER};
+        vtDecl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
         Clay__ConfigureOpenElement(vtDecl);
 
         Text(options[selectedIndex], fontId,
@@ -246,14 +245,17 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
 
     float contentAlpha = animProgress;
 
-    Clay_ElementId dropdownId = utils::layout::getNextId("SelectDropdown");
+    // Hash "SelectDropdown" with parent ID to protect global index counters!
+    Clay_ElementId dropdownId = Clay__HashString(
+        Clay_String{false, 14, "SelectDropdown"}, selectHeaderId.id);
     Clay__OpenElementWithId(dropdownId);
 
     Clay_ElementDeclaration floatDecl{};
-    floatDecl.floating = {.offset = {offsetX, offsetY},
-                          .parentId = selectHeaderId.id,
-                          .zIndex = 1000,
-                          .attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID};
+    // Directly modify fields of the value member!
+    floatDecl.floating.offset = {offsetX, offsetY};
+    floatDecl.floating.parentId = selectHeaderId.id;
+    floatDecl.floating.zIndex = 1000;
+    floatDecl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
 
     floatDecl.backgroundColor = {baseBg.r * 255.0f, baseBg.g * 255.0f,
                                  baseBg.b * 255.0f,
@@ -280,12 +282,16 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
     Clay__ConfigureOpenElement(floatDecl);
 
     for (size_t i = 0; i < options.size(); ++i) {
-      Clay_ElementId optionId = utils::layout::getNextId("SelectOption");
+      Clay_ElementId optionId =
+          Clay__HashStringWithOffset(Clay_String{false, 12, "SelectOption"},
+                                     static_cast<uint32_t>(i), dropdownId.id);
+
       bool isSelected = (i == selectedIndex);
 
       bool isOptHovered = false;
       Clay_ElementData optData = Clay_GetElementData(optionId);
-      if (optData.found && isOpen && animProgress > 0.2f) {
+
+      if (optData.found && isOpen && animProgress >= 0.95f) {
         isOptHovered = utils::ui::isPointerOverRoundedBox(
             uiState->pointerPos, optData.boundingBox, glm::vec4(4.0f));
       }
@@ -296,7 +302,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
 
       glm::vec4 targetOptBg = glm::vec4(0.0f);
       if (isSelected && isOptHovered) {
-        targetOptBg = glm::vec4(1.0f, 1.0f, 1.0f, 0.18f * contentAlpha);
+        targetOptBg = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f * contentAlpha);
       } else if (isSelected) {
         targetOptBg = glm::vec4(1.0f, 1.0f, 1.0f, 0.12f * contentAlpha);
       } else if (isOptHovered) {
@@ -324,7 +330,11 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
       Clay__ConfigureOpenElement(optDecl);
 
       if (contentAlpha > 0.001f) {
-        Text(options[i], fontId,
+        // Hash the text ID using the optionId as the seed
+        Clay_ElementId optionTextId =
+            Clay__HashString(Clay_String{false, 10, "OptionText"}, optionId.id);
+
+        Text(options[i], fontId, optionTextId,
              DefaultModifier().color(
                  isSelected ? glm::vec4(1.0f, 1.0f, 1.0f, contentAlpha)
                             : glm::vec4(0.80f, 0.80f, 0.82f, contentAlpha)));
@@ -341,8 +351,8 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
 
     Clay__CloseElement(); // SelectDropdown
 
-    if (initialIsOpen && uiState->pointerPressed && !isHovered &&
-        !anyOptionHovered) {
+    if (initialIsOpen && animProgress >= 0.95f && uiState->pointerPressed &&
+        !isHovered && !anyOptionHovered) {
       isOpen = false;
     }
   }

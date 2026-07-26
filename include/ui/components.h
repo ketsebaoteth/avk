@@ -1,6 +1,7 @@
 #include "animation/animation.h"
 #include "avk/atomic_ui.h"
 #include "ui/color.h"
+#include "ui/lucide-icons.generated.h"
 
 namespace atomic {
 
@@ -49,6 +50,11 @@ Interaction Text(const std::string &text, uint32_t fontId,
 
 // overload with no fontID
 Interaction Text(const std::string &text,
+                 Modifier &&modifier = DefaultModifier());
+
+// notRecommendedForUse: overloaded for internal use only
+Interaction Text(const std::string &text, uint32_t fontId,
+                 Clay_ElementId textId,
                  Modifier &&modifier = DefaultModifier());
 
 /**
@@ -101,7 +107,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
  */
 struct ScrollViewConfig {
   bool smoothScrolling = true;
-  float smoothFactor = 0.05f;
+  float smoothFactor = 0.05f; // more smother when this number is lower
 
   // Visibility toggles
   bool showVerticalBar = true;
@@ -141,4 +147,24 @@ inline void ScrollView(std::function<void()> contentCallback) {
   ScrollView(DefaultModifier(), ScrollViewConfig{}, std::move(contentCallback));
 }
 
+/**
+ * @brief Renders a beautiful, animated shadcn-style sliding switch/toggle.
+ * @param checked Reference to the boolean tracking if the switch is ON or OFF.
+ * @return An Interaction state block.
+ */
+Interaction Switch(Modifier &&modifier, bool &checked);
+
+/**
+ * @brief Renders a razor-sharp, point-filtered vector Lucide icon.
+ * @param name The official Lucide icon name (e.g. "search", "settings",
+ * "chevron-down").
+ */
+Interaction Icon(LucideIcon icon, Modifier &&modifier);
+/**
+ * @brief Renders a beautiful, animated shadcn-style checkbox with a vector
+ * checkmark.
+ * @param checked Reference to the boolean tracking the checked state.
+ * @return An Interaction state block.
+ */
+Interaction Checkbox(Modifier &&modifier, bool &checked);
 } // namespace atomic

@@ -17,35 +17,20 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   glm::vec4 strokeColor = style.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
   float strokeWidth = style.strokeThickness.value_or(DEFAULT_BORDER_WIDTH);
 
-  Clay_LayoutAlignmentX clayAlignX = CLAY_ALIGN_X_CENTER;
-  if (style.alignX.has_value()) {
-    switch (style.alignX.value()) {
-    case AlignmentX::Left:
-      clayAlignX = CLAY_ALIGN_X_LEFT;
-      break;
-    case AlignmentX::Right:
-      clayAlignX = CLAY_ALIGN_X_RIGHT;
-      break;
-    default:
-      clayAlignX = CLAY_ALIGN_X_CENTER;
-      break;
-    }
-  }
+  // Layout alignment setup
+  Clay_LayoutAlignmentX clayAlignX =
+      style.alignX.has_value() && style.alignX.value() == AlignmentX::Left
+          ? CLAY_ALIGN_X_LEFT
+      : style.alignX.has_value() && style.alignX.value() == AlignmentX::Right
+          ? CLAY_ALIGN_X_RIGHT
+          : CLAY_ALIGN_X_CENTER;
 
-  Clay_LayoutAlignmentY clayAlignY = CLAY_ALIGN_Y_CENTER;
-  if (style.alignY.has_value()) {
-    switch (style.alignY.value()) {
-    case AlignmentY::Top:
-      clayAlignY = CLAY_ALIGN_Y_TOP;
-      break;
-    case AlignmentY::Bottom:
-      clayAlignY = CLAY_ALIGN_Y_BOTTOM;
-      break;
-    default:
-      clayAlignY = CLAY_ALIGN_Y_CENTER;
-      break;
-    }
-  }
+  Clay_LayoutAlignmentY clayAlignY =
+      style.alignY.has_value() && style.alignY.value() == AlignmentY::Top
+          ? CLAY_ALIGN_Y_TOP
+      : style.alignY.has_value() && style.alignY.value() == AlignmentY::Bottom
+          ? CLAY_ALIGN_Y_BOTTOM
+          : CLAY_ALIGN_Y_CENTER;
 
   Clay_ElementId buttonId = utils::layout::getNextId("Button");
 
@@ -58,39 +43,22 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
 
   bool isPressedDown = isHovered && uiState->pointerDown;
 
-  // Scale factor tracking combined with modifier transforms
+  // Track animations
   float targetScale = isPressedDown ? 0.95f : 1.0f;
   float animatedScale = AnimateFloat(buttonId.id + 0x4000, targetScale, 0.15f,
                                      Curves::AppleEaseOut);
 
   float finalScale = animatedScale * style.scale.value_or(1.0f);
   float finalRotation = style.rotation.value_or(0.0f);
-  float finalBlur = style.blur.value_or(0.0f);
 
   Clay__OpenElementWithId(buttonId);
 
-  // STATIC LAYOUT: Sizing and padding remain completely fixed.
-  // This guarantees zero layout reflow, zero layout jumps, and 60/120fps
-  // performance.
-  Clay_Sizing sizing{};
-  if (style.width.has_value()) {
-    sizing.width = CLAY_SIZING_FIXED(style.width.value());
-  } else {
-    sizing.width = CLAY_SIZING_FIT();
-  }
-  sizing.height = style.height.has_value()
-                      ? CLAY_SIZING_FIXED(style.height.value())
-                      : CLAY_SIZING_FIXED(DEFAULT_HEIGHT);
-
-  uint16_t padL = style.padLeft.value_or(16);
-  uint16_t padR = style.padRight.value_or(16);
-  uint16_t padT = style.padTop.value_or(10);
-  uint16_t padB = style.padBottom.value_or(10);
-
+  // Default layout setup using standard constant defaults
   Clay_ElementDeclaration decl{};
-  decl.layout = {.sizing = sizing,
-                 .padding = {padL, padR, padT, padB},
-                 .childGap = style.childGap.value_or(0),
+  decl.layout = {.sizing = {.width = CLAY_SIZING_FIT(),
+                            .height = CLAY_SIZING_FIXED(DEFAULT_HEIGHT)},
+                 .padding = {16, 16, 10, 10},
+                 .childGap = 0,
                  .childAlignment = {.x = clayAlignX, .y = clayAlignY},
                  .layoutDirection = CLAY_LEFT_TO_RIGHT};
 
@@ -101,6 +69,10 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
                            .right = static_cast<uint16_t>(strokeWidth),
                            .top = static_cast<uint16_t>(strokeWidth),
                            .bottom = static_cast<uint16_t>(strokeWidth)}};
+
+  // 1-LINE SYSTEM HOOK: Overwrites any default layout sizes, paddings, and
+  // positions if specified by style
+  utils::layout::applyStyleToLayout(decl, style);
 
   glm::vec4 targetBg = bg;
   if (isPressedDown) {
@@ -113,19 +85,14 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
 
   glm::vec4 animatedBg =
       AnimateVec4(buttonId.id + 0x1000, targetBg, 0.15f, Curves::AppleEaseOut);
-
   decl.backgroundColor = {animatedBg.r * 255.0f, animatedBg.g * 255.0f,
                           animatedBg.b * 255.0f, animatedBg.a * 255.0f};
   decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
 
-  // Attach GPU transform payload so endFrame reads scale, rotation, and blur
-  // correctly
-  auto *payload = new RenderPayload{.textureIndex = 0,
-                                    .tintColor = glm::vec4(1.0f),
-                                    .scale = finalScale,
-                                    .rotation = finalRotation,
-                                    .blur = finalBlur};
-  decl.userData = payload;
+  // Safe frame allocation - animatedScale and finalRotation are now correctly
+  // used!
+  decl.userData =
+      utils::layout::createFramePayload(style, finalScale, finalRotation);
 
   Clay__ConfigureOpenElement(decl);
 
