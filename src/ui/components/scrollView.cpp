@@ -7,6 +7,10 @@
 
 namespace atomic {
 
+/**
+ * @brief Scrollable container viewport with pixel-snapped rendering and custom
+ * scrollbars.
+ */
 void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                 std::function<void()> contentCallback) {
   const auto &style = modifier.getStyle();
@@ -22,7 +26,12 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
 
   Clay_ElementDeclaration decl{};
   decl.layout = {
-      .sizing = {.width = CLAY_SIZING_GROW(), .height = CLAY_SIZING_GROW()},
+      .sizing = {.width = style.width.has_value()
+                              ? CLAY_SIZING_FIXED(style.width.value())
+                              : CLAY_SIZING_GROW(),
+                 .height = style.height.has_value()
+                               ? CLAY_SIZING_FIXED(style.height.value())
+                               : CLAY_SIZING_GROW()},
       .padding = {0, 0, 0, 0},
       .layoutDirection = CLAY_TOP_TO_BOTTOM};
 
@@ -30,25 +39,23 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                           bg.a * 255.0f};
   decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
 
+  float renderScrollX = std::round(scrollState.scrollOffsetX);
+  float renderScrollY = std::round(scrollState.scrollOffsetY);
+
   decl.clip = {.horizontal = config.showHorizontalBar,
                .vertical = config.showVerticalBar,
-               .childOffset = Clay_Vector2{-scrollState.scrollOffsetX,
-                                           -scrollState.scrollOffsetY}};
+               .childOffset = Clay_Vector2{-renderScrollX, -renderScrollY}};
 
-  // 1-LINE SYSTEM HOOK: Map styling, size overrides, padding, and layout
-  // offsets
   utils::layout::applyStyleToLayout(decl, style);
 
-  // CONTEXT GUARD: Establishes a relative/absolute positioning context for
-  // nested scrolling children
   auto pos = style.position.value_or(Position::Normal);
-  utils::layout::PositioningContextGuard guard(scrollId.id, pos);
+  utils::layout::PositioningContextGuard posGuard(scrollId.id, pos);
+  utils::layout::StyleCascadeGuard styleGuard(style);
 
   decl.userData = utils::layout::createFramePayload(style);
 
   Clay__ConfigureOpenElement(decl);
 
-  // Evaluate mouse hover
   bool isHovered = false;
   Clay_ElementData elementData = Clay_GetElementData(scrollId);
   if (elementData.found) {
@@ -56,7 +63,6 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
         uiState->pointerPos, elementData.boundingBox, radius);
   }
 
-  // Scroll Container logic
   Clay_ScrollContainerData scrollData = Clay_GetScrollContainerData(scrollId);
   float maxScrollY = 0.0f;
   float maxScrollX = 0.0f;
@@ -69,7 +75,6 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                                     scrollData.scrollContainerDimensions.width);
   }
 
-  // Scroll wheel events
   if (isHovered && !scrollState.isDraggingY) {
     if (config.showVerticalBar && uiState->mouseWheelDeltaY != 0.0f) {
       scrollState.targetScrollOffsetY -= uiState->mouseWheelDeltaY * 35.0f;
@@ -79,7 +84,6 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
     }
   }
 
-  // Vertical Scrollbar logic
   float barH = 0.0f;
   float barY = 0.0f;
   bool isBarHovered = false;
@@ -93,7 +97,8 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
     barH = containerH * (containerH / contentH);
     barH = std::max(config.scrollbarMinThumbSize, barH);
 
-    float scrollPercent = scrollState.scrollOffsetY / maxScrollY;
+    float scrollPercent =
+        (maxScrollY > 0.0f) ? (scrollState.scrollOffsetY / maxScrollY) : 0.0f;
     barY = scrollPercent * (containerH - barH);
 
     float absoluteBarX = elementData.boundingBox.x +
@@ -152,23 +157,9 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
     contentCallback();
   }
 
-  // Draw Vertical Scrollbar thumb
   if (config.showVerticalBar && scrollData.found &&
       scrollData.contentDimensions.height >
           scrollData.scrollContainerDimensions.height) {
-    Clay_ElementId scrollbarId = utils::layout::getNextId("ScrollbarThumb");
-    Clay__OpenElementWithId(scrollbarId);
-
-    Clay_ElementDeclaration scrollbarDecl{};
-    // Value member configurations directly assigned to avoid compile warnings!
-    scrollbarDecl.floating.offset = {
-        scrollData.scrollContainerDimensions.width - config.scrollbarWidth -
-            config.scrollbarMarginRight,
-        barY};
-    scrollbarDecl.floating.parentId = scrollId.id;
-    scrollbarDecl.floating.zIndex = 500;
-    scrollbarDecl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
-
     glm::vec4 barColor = config.scrollbarColor;
     if (scrollState.isDraggingY) {
       barColor = config.scrollbarColorPressed;
@@ -176,17 +167,16 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
       barColor = config.scrollbarColorHover;
     }
 
-    scrollbarDecl.backgroundColor = {barColor.r * 255.0f, barColor.g * 255.0f,
-                                     barColor.b * 255.0f, barColor.a * 255.0f};
-    scrollbarDecl.cornerRadius = {
-        config.scrollbarRadius, config.scrollbarRadius, config.scrollbarRadius,
-        config.scrollbarRadius};
-    scrollbarDecl.layout = {
-        .sizing = {.width = CLAY_SIZING_FIXED(config.scrollbarWidth),
-                   .height = CLAY_SIZING_FIXED(barH)}};
-
-    Clay__ConfigureOpenElement(scrollbarDecl);
-    Clay__CloseElement();
+    Div(DefaultModifier()
+            .absolute()
+            .parentId(scrollId.id)
+            .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
+            .offset(scrollData.scrollContainerDimensions.width -
+                        config.scrollbarWidth - config.scrollbarMarginRight,
+                    barY)
+            .size(config.scrollbarWidth, barH)
+            .background(barColor)
+            .rounded(config.scrollbarRadius));
   }
 
   Clay__CloseElement();

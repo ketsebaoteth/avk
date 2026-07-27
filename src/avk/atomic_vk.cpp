@@ -14,17 +14,16 @@
 #include <iostream>
 #include <memory>
 #include <vector>
+
 #ifndef AVK_ASSETS_DIR
 #define AVK_ASSETS_DIR "assets"
 #endif
 
 namespace atomic {
 
-// --globals
 std::unique_ptr<UIState> g_uiState = nullptr;
 [[maybe_unused]] static void *g_clayArenaMemory = nullptr;
 uint32_t g_elementIdCounter = 0;
-// --globals
 
 std::string getPath(const std::string &relativePath) {
   namespace fs = std::filesystem;
@@ -55,8 +54,6 @@ uint32_t loadFont(const std::string &path, uint32_t fontSize,
   return static_cast<uint32_t>(g_uiState->fonts.size() - 1);
 }
 
-// Keep the old 2-argument signature working by passing empty vector (falls back
-// to ASCII)
 uint32_t loadFont(const std::string &path, uint32_t fontSize) {
   return loadFont(path, fontSize, {});
 }
@@ -74,22 +71,19 @@ static Clay_Dimensions measureTextCallback(Clay_StringSlice text,
 
   return Clay_Dimensions{size.x, size.y};
 }
+
 uint32_t getClosestIconFontId(float requestedSize) {
   if (!utils::layout::getUiState())
     return 0;
 
-  // Available pre-rasterized size tiers
   static constexpr std::array<float, 5> TIERS = {12.0f, 16.0f, 24.0f, 32.0f,
                                                  48.0f};
 
-  uint32_t closestIndex = 1; // Default to 16px (Index 1)
+  uint32_t closestIndex = 1;
   float minDiff = std::abs(requestedSize - TIERS[1]);
 
   for (size_t i = 0; i < TIERS.size(); ++i) {
     float diff = std::abs(requestedSize - TIERS[i]);
-
-    // We prefer a slightly larger font scaled down, as downscaling is sharper
-    // than upscaling!
     if (diff < minDiff) {
       minDiff = diff;
       closestIndex = static_cast<uint32_t>(i);
@@ -117,16 +111,14 @@ void initialize(std::optional<VeraNativeHandle> nativeDisplay,
                   Clay_ErrorHandler{utils::layout::handleClayError, nullptr});
   Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
 
-  // 1. Load built-in font Inter
   g_uiState->defaultFontId = loadFont("fonts/Inter_24pt-Regular.ttf", 19);
 
   std::vector<uint32_t> iconCodepoints;
-  iconCodepoints.reserve(6400); // 0xF8FF - 0xE000
+  iconCodepoints.reserve(6400);
   for (uint32_t i = 0xE000; i <= 0xF8FF; ++i) {
     iconCodepoints.push_back(i);
   }
 
-  // 3. Pre-rasterize standard flat bitmaps at 5 distinct sizes at startup!
   g_uiState->defaultIconFontIds[0] =
       loadFont("fonts/lucide.ttf", 12, iconCodepoints);
   g_uiState->defaultIconFontIds[1] =
@@ -211,12 +203,6 @@ void registerWindow(VeraWindow *window) {
       return;
     g_uiState->pointerPos =
         glm::vec2(static_cast<float>(x), static_cast<float>(y));
-    Clay_SetPointerState(
-        Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
-        g_uiState->pointerPressed);
-    Clay_SetPointerState(
-        Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
-        g_uiState->pointerDown);
   });
 
   window->setMouseButtonCallback([](VeraMouseButton button, bool pressed) {
@@ -230,10 +216,6 @@ void registerWindow(VeraWindow *window) {
         g_uiState->pointerPressed = false;
         g_uiState->pointerDown = false;
       }
-
-      Clay_SetPointerState(
-          Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
-          g_uiState->pointerDown);
     }
   });
 
@@ -251,7 +233,6 @@ void registerWindow(VeraWindow *window) {
       return;
     (void)repeat;
 
-    // Track Ctrl modifier globally
     if (key == VeraKey::LeftCtrl || key == VeraKey::RightCtrl) {
       g_uiState->ctrlPressed = pressed;
     }
@@ -271,7 +252,7 @@ void registerWindow(VeraWindow *window) {
       } else if (key == VeraKey::Right) {
         g_uiState->rightArrowPressed = true;
       } else if (key == VeraKey::ALower && g_uiState->ctrlPressed) {
-        g_uiState->selectAll = true; // Ctrl+A triggered!
+        g_uiState->selectAll = true;
       }
     }
   });
@@ -298,7 +279,13 @@ bool beginFrame(VeraWindow *window) {
   if (session == nullptr || !session->canvas->isActive())
     return false;
 
+  g_uiState->computedStyleMap.clear();
   g_uiState->positioningContextStack.clear();
+  g_uiState->cascadingStyleStack.clear();
+
+  Clay_SetPointerState(
+      Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
+      g_uiState->pointerDown);
 
   auto currentTime = std::chrono::high_resolution_clock::now();
   session->lastDeltaTime =
@@ -320,10 +307,6 @@ bool beginFrame(VeraWindow *window) {
   return val;
 }
 
-/**
- * @brief Decodes a multi-byte UTF-8 string on the fly from a raw char array.
- * (This is the 3-argument version for Clay strings in atomic_ui.cpp)
- */
 static uint32_t decodeNextUtf8(const char *chars, int32_t length,
                                uint32_t &index) {
   if (index >= static_cast<uint32_t>(length))
@@ -334,7 +317,6 @@ static uint32_t decodeNextUtf8(const char *chars, int32_t length,
   if (c < 0x80)
     return c;
 
-  // 2-byte character
   if ((c & 0xE0) == 0xC0) {
     if (index >= static_cast<uint32_t>(length))
       return c;
@@ -343,7 +325,6 @@ static uint32_t decodeNextUtf8(const char *chars, int32_t length,
     return res;
   }
 
-  // 3-byte character
   if ((c & 0xF0) == 0xE0) {
     if (index + 1 >= static_cast<uint32_t>(length))
       return c;
@@ -353,7 +334,6 @@ static uint32_t decodeNextUtf8(const char *chars, int32_t length,
     return res;
   }
 
-  // 4-byte character
   if ((c & 0xF8) == 0xF0) {
     if (index + 2 >= static_cast<uint32_t>(length))
       return c;
@@ -366,6 +346,7 @@ static uint32_t decodeNextUtf8(const char *chars, int32_t length,
 
   return c;
 }
+
 void endFrame(VeraWindow *window) {
   if (!g_uiState)
     return;
@@ -386,8 +367,6 @@ void endFrame(VeraWindow *window) {
   std::vector<Clay_BoundingBox> clipStack;
   [[maybe_unused]] Clay_BoundingBox *currentClip = nullptr;
 
-  // CPU Transformation math: Scale and rotate any bounding box relative to an
-  // arbitrary pivot origin.
   auto getPivotTransformedCoords = [](const Clay_BoundingBox &box, float scale,
                                       float rotation, const glm::vec2 &origin,
                                       const glm::vec2 &translate) -> glm::vec4 {
@@ -435,9 +414,6 @@ void endFrame(VeraWindow *window) {
       activeClipRect = glm::vec4(-10000.0f, -10000.0f, 200000.0f, 200000.0f);
     }
 
-    // -------------------------------------------------------------
-    // Handle Rectangle Commands
-    // -------------------------------------------------------------
     if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_RECTANGLE) {
       Clay_RectangleRenderData *rectData = &cmd->renderData.rectangle;
 
@@ -484,11 +460,7 @@ void endFrame(VeraWindow *window) {
       instance.rotation = elementRotation;
 
       g_uiState->renderer->submit(instance);
-    }
-    // -------------------------------------------------------------
-    // Handle Border Commands
-    // -------------------------------------------------------------
-    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
+    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
       Clay_BorderRenderData *borderData = &cmd->renderData.border;
 
       float elementScale = 1.0f;
@@ -535,33 +507,73 @@ void endFrame(VeraWindow *window) {
       instance.rotation = elementRotation;
 
       g_uiState->renderer->submit(instance);
-    }
-    // -------------------------------------------------------------
-    // Handle Image Commands
-    // -------------------------------------------------------------
-    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE) {
+    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE) {
       Clay_ImageRenderData *imageData = &cmd->renderData.image;
 
-      uint32_t textureIndex = 0;
-      glm::vec4 tintColor = glm::vec4(1.0f);
       float elementScale = 1.0f;
       float elementRotation = 0.0f;
+      float elementBlur = 0.0f;
       glm::vec2 transformOrigin(0.5f, 0.5f);
       glm::vec2 translate(0.0f, 0.0f);
+      uint32_t textureIndex = 0;
+      glm::vec4 tintColor(1.0f);
+
+      glm::vec4 uvBounds(0.0f, 0.0f, 1.0f, 1.0f);
+      ObjectFit objectFit = ObjectFit::Fill;
 
       if (cmd->userData != nullptr) {
         auto *payload = static_cast<RenderPayload *>(cmd->userData);
-        textureIndex = payload->textureIndex;
-        tintColor = payload->tintColor;
         elementScale = payload->scale;
         elementRotation = payload->rotation;
+        elementBlur = payload->blur;
         transformOrigin = payload->transformOrigin;
         translate = payload->translate;
+        textureIndex = payload->textureIndex;
+        tintColor = payload->tintColor;
+
+        uvBounds = payload->uvBounds;
+        objectFit = payload->objectFit;
       }
 
       glm::vec4 transformedRect = getPivotTransformedCoords(
           cmd->boundingBox, elementScale, elementRotation, transformOrigin,
           translate);
+
+      glm::vec4 finalUvBounds = uvBounds;
+
+      if (objectFit != ObjectFit::Fill && objectFit != ObjectFit::Custom) {
+        VkExtent2D texExt =
+            g_uiState->context->getTextureManager()->getTextureExtent(
+                textureIndex);
+
+        if (texExt.height > 0 && transformedRect.w > 0.0f) {
+          float srcAspect = static_cast<float>(texExt.width) /
+                            static_cast<float>(texExt.height);
+          float destAspect = transformedRect.z / transformedRect.w;
+
+          if (objectFit == ObjectFit::Cover) {
+            if (srcAspect > destAspect) {
+              float scale = destAspect / srcAspect;
+              float offset = (1.0f - scale) * 0.5f;
+              finalUvBounds = glm::vec4(offset, 0.0f, 1.0f - offset, 1.0f);
+            } else {
+              float scale = srcAspect / destAspect;
+              float offset = (1.0f - scale) * 0.5f;
+              finalUvBounds = glm::vec4(0.0f, offset, 1.0f, 1.0f - offset);
+            }
+          } else if (objectFit == ObjectFit::Contain) {
+            if (srcAspect > destAspect) {
+              float scale = srcAspect / destAspect;
+              float offset = (1.0f - scale) * 0.5f;
+              finalUvBounds = glm::vec4(0.0f, offset, 1.0f, 1.0f - offset);
+            } else {
+              float scale = destAspect / srcAspect;
+              float offset = (1.0f - scale) * 0.5f;
+              finalUvBounds = glm::vec4(offset, 0.0f, 1.0f - offset, 1.0f);
+            }
+          }
+        }
+      }
 
       avk::InstanceData instance{};
       instance.rectXYWH = glm::vec4(
@@ -572,8 +584,9 @@ void endFrame(VeraWindow *window) {
                                       imageData->backgroundColor.g / 255.0f,
                                       imageData->backgroundColor.b / 255.0f,
                                       imageData->backgroundColor.a / 255.0f);
-
       instance.fillColorB = tintColor;
+
+      instance.uvBounds = finalUvBounds;
 
       instance.borderRadius = glm::vec4(imageData->cornerRadius.topLeft,
                                         imageData->cornerRadius.topRight,
@@ -585,16 +598,12 @@ void endFrame(VeraWindow *window) {
       instance.fillType = 4;
       instance.textureIndex = textureIndex;
       instance.strokeThickness = 0.0f;
-      instance.blur = 0.0f;
+      instance.blur = elementBlur;
       instance.scale = elementScale;
       instance.rotation = elementRotation;
 
       g_uiState->renderer->submit(instance);
-    }
-    // -------------------------------------------------------------
-    // Handle Text Commands
-    // -------------------------------------------------------------
-    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
+    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
       Clay_TextRenderData *textData = &cmd->renderData.text;
 
       if (textData->fontId >= g_uiState->fonts.size()) {
@@ -641,7 +650,6 @@ void endFrame(VeraWindow *window) {
         float posW = std::round(glyph.size.x);
         float posH = std::round(glyph.size.y);
 
-        // Perform CPU pivot matrix calculations dynamically per glyph character
         glm::vec4 transformedGlyph = getPivotTransformedCoords(
             Clay_BoundingBox{posX, posY, posW, posH}, elementScale,
             elementRotation, transformOrigin, translate);
@@ -672,10 +680,8 @@ void endFrame(VeraWindow *window) {
 
   session->canvas->endFrame(*g_uiState->renderer);
 
-  // Safely wipe out all generated payloads inside our garbage collection array
   g_uiState->framePayloads.clear();
 
-  // Reset input states
   g_uiState->capturedChars.clear();
   g_uiState->backspacePressed = false;
   g_uiState->enterPressed = false;
@@ -699,7 +705,6 @@ void resizeWindow(VeraWindow *window, uint32_t width, uint32_t height) {
       intScale = 1;
     }
 
-    // Resize the Vulkan swapchain to physical pixels
     session->canvas->resize(width * intScale, height * intScale);
   }
 }

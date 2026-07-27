@@ -117,7 +117,7 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
     return 0;
   }
 
-  // 1. Load image file from disk
+  // 1. Load image file from disk via STB
   int texWidth = 0, texHeight = 0, texChannels = 0;
   stbi_uc *pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels,
                               STBI_rgb_alpha);
@@ -136,8 +136,10 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
   std::memcpy(stagingBuffer.getMappedData(), pixels, imageSize);
   stbi_image_free(pixels);
+  vmaFlushAllocation(m_context->getAllocator()->getVmaAllocator(),
+                     stagingBuffer.getAllocation(), 0, VK_WHOLE_SIZE);
 
-  // 3. Create target optimal GPU image
+  // 3. Create target optimal GPU image (UNORM Format)
   VkImageCreateInfo imageInfo{};
   imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -146,7 +148,7 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
   imageInfo.extent.depth = 1;
   imageInfo.mipLevels = 1;
   imageInfo.arrayLayers = 1;
-  imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM; // <--- FIX 1
   imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   imageInfo.usage =
@@ -157,14 +159,11 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
   AllocatedImage gpuImage = m_context->getAllocator()->createImage(
       imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
 
-  // 4. Record and submit copy commands to GPU inside a SINGLE command buffer
+  // 4. Record and submit copy commands to GPU
   VkDevice device = m_context->getDevice();
-  VkQueue graphicsQueue = m_context->getGraphicsQueue();
-
   VkCommandPool tempPool = VK_NULL_HANDLE;
   VkCommandBuffer cmd = beginSingleTimeCommands(tempPool);
 
-  // Transition 1: UNDEFINED -> TRANSFER_DST_OPTIMAL
   VkImageMemoryBarrier barrier{};
   barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
   barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -184,7 +183,6 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
                        VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
                        nullptr, 1, &barrier);
 
-  // Copy Buffer to Image
   VkBufferImageCopy region{};
   region.bufferOffset = 0;
   region.bufferRowLength = 0;
@@ -200,7 +198,6 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
   vkCmdCopyBufferToImage(cmd, stagingBuffer.getBuffer(), gpuImage.getImage(),
                          VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
-  // Transition 2: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
   barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
   barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -210,34 +207,16 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
                        nullptr, 1, &barrier);
 
-  // End and Submit synchronously
-  vkEndCommandBuffer(cmd);
-
-  VkSubmitInfo submitInfo{};
-  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = &cmd;
-
-  VkFenceCreateInfo fenceInfo{};
-  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  VkFence fence = VK_NULL_HANDLE;
-  vkCreateFence(device, &fenceInfo, nullptr, &fence);
-
-  vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
-  vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-
-  // Cleanup transient structures
-  vkDestroyFence(device, fence, nullptr);
-  vkDestroyCommandPool(device, tempPool, nullptr);
+  endSingleTimeCommands(cmd, tempPool);
   stagingBuffer.destroy();
 
-  // 5. Create ImageView wrapper
+  // 5. Create ImageView wrapper (UNORM Format)
   VkImageView view = VK_NULL_HANDLE;
   VkImageViewCreateInfo viewInfo{};
   viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   viewInfo.image = gpuImage.getImage();
   viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  viewInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+  viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM; // <--- FIX 2
   viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   viewInfo.subresourceRange.baseMipLevel = 0;
   viewInfo.subresourceRange.levelCount = 1;
@@ -250,35 +229,8 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
     return 0;
   }
 
-  // 6. Register inside our boundless Descriptor Set
-  uint32_t slot = m_freeSlots.back();
-  m_freeSlots.pop_back();
-
-  VkDescriptorImageInfo descriptorImageInfo{};
-  descriptorImageInfo.sampler = m_sharedSampler;
-  descriptorImageInfo.imageView = view;
-  descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-  VkWriteDescriptorSet write{};
-  write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-  write.dstSet = m_descriptorSet;
-  write.dstBinding = 0;
-  write.dstArrayElement = slot;
-  write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-  write.descriptorCount = 1;
-  write.pImageInfo = &descriptorImageInfo;
-
-  vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
-
-  // 7. Save Texture Context
-  auto texture = std::make_unique<Texture>();
-  texture->image = std::move(gpuImage);
-  texture->view = view;
-  texture->index = slot;
-
-  m_textures[slot] = std::move(texture);
-
-  return slot;
+  // 6. Register inside descriptor set
+  return registerTexture(std::move(gpuImage), view, m_sharedSampler);
 }
 
 void TextureManager::unloadTexture(uint32_t index) {

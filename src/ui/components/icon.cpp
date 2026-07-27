@@ -30,9 +30,10 @@ std::string codepointToUtf8(char32_t codepoint) {
 
 namespace atomic {
 
+/**
+ * @brief Renders a vector Lucide icon with cascading style inheritance.
+ */
 Interaction Icon(LucideIcon icon, Modifier &&modifier) {
-  // Cache the string statically so the underlying char pointer
-  // remains valid for Clay to read during the render phase!
   static std::unordered_map<LucideIcon, std::string> iconStringCache;
 
   if (iconStringCache.find(icon) == iconStringCache.end()) {
@@ -41,13 +42,11 @@ Interaction Icon(LucideIcon icon, Modifier &&modifier) {
   }
 
   const std::string &iconString = iconStringCache[icon];
-
   const auto &style = modifier.getStyle();
-  const float requestedSize = style.height.value_or(16.0f);
+  const float requestedSize =
+      style.height.value_or(style.width.value_or(16.0f));
   const uint32_t closestFontId = getClosestIconFontId(requestedSize);
 
-  // Chains sizing overrides correctly while carrying over position/transform
-  // modifiers to Text()
   return Text(iconString, closestFontId,
               std::move(modifier).size(requestedSize, requestedSize));
 }

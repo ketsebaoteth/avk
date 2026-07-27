@@ -115,11 +115,26 @@ void main() {
         }
         return;
     } else if (inFillType == 4) { 
-        vec4 texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], inUV);
-        vec4 tintedTex = texColor * inFillColorB;
-        fillColor = mix(inFillColorA, tintedTex, tintedTex.a);
-    }
+      vec2 uv = mix(inUvBounds.xy, inUvBounds.zw, inUV);
+        vec4 texColor;
 
+        // CSS "Contain": If the mapped UV is out of bounds, render transparent padding!
+        if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+            texColor = vec4(0.0); 
+        } else {
+            texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], uv);
+        }
+        vec4 finalColor = texColor * inFillColorB;
+
+        float aaWidth = (max(fwidth(d), 0.0001) + inBlur) * max(inScale, 0.0001);
+        float alpha = clamp(0.5 - d / aaWidth, 0.0, 1.0);
+
+        outColor = vec4(finalColor.rgb, finalColor.a * alpha);
+        if (outColor.a < 0.001) {
+            discard;
+        }
+        return;  
+    }    
     float aaWidth = (max(fwidth(d), 0.0001) + inBlur) * max(inScale, 0.0001);
     float alpha = clamp(0.5 - d / aaWidth, 0.0, 1.0);
 

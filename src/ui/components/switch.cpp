@@ -7,12 +7,14 @@
 
 namespace atomic {
 
+/**
+ * @brief Animated sliding toggle switch component built on top of Div.
+ */
 Interaction Switch(Modifier &&modifier, bool &checked) {
   const auto &style = modifier.getStyle();
   auto *uiState = utils::layout::getUiState();
 
   Clay_ElementId switchId = utils::layout::getNextId("Switch");
-  Clay__OpenElementWithId(switchId);
 
   float width = style.width.value_or(48.0f);
   float height = style.height.value_or(26.0f);
@@ -39,61 +41,34 @@ Interaction Switch(Modifier &&modifier, bool &checked) {
   glm::vec4 targetColor = checked ? activeColor : inactiveColor;
 
   glm::vec4 animatedColor = AnimateVec4(switchId.id + 0x1000, targetColor,
-                                        0.18f, AnimationCurve::EaseOut());
+                                        0.18f, Curves::AppleEaseOut);
 
-  Clay_ElementDeclaration decl{};
-  decl.layout = {.sizing = {.width = CLAY_SIZING_FIXED(width),
-                            .height = CLAY_SIZING_FIXED(height)}};
-
-  decl.backgroundColor = {animatedColor.r * 255.0f, animatedColor.g * 255.0f,
-                          animatedColor.b * 255.0f, animatedColor.a * 255.0f};
-  decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
-
-  // 1-LINE SYSTEM HOOK: Overwrites layout metrics and positioning
-  utils::layout::applyStyleToLayout(decl, style);
-
-  // Safe frame allocation for transitions
-  decl.userData = utils::layout::createFramePayload(style);
-
-  Clay__ConfigureOpenElement(decl);
-
-  // -----------------------------------------------------------------
-  // 3. THE SLIDING THUMB ANIMATION (Floating Layout)
-  // -----------------------------------------------------------------
   float thumbSize = height - (pad * 2.0f);
   float minX = pad;
   float maxX = width - pad - thumbSize;
   float targetX = checked ? maxX : minX;
 
-  float animatedX = AnimateFloat(switchId.id + 0x2000, targetX, 0.18f,
-                                 AnimationCurve::EaseOut());
+  float animatedX =
+      AnimateFloat(switchId.id + 0x2000, targetX, 0.18f, Curves::AppleEaseOut);
 
-  Clay_ElementId thumbId =
-      Clay__HashString(Clay_String{false, 11, "SwitchThumb"}, switchId.id);
-  Clay__OpenElementWithId(thumbId);
+  Modifier switchStyle = std::move(modifier)
+                             .background(animatedColor)
+                             .size(width, height)
+                             .rounded(pillRadius)
+                             .relative();
 
-  Clay_ElementDeclaration thumbDecl{};
-  // Direct value assignment to avoid C++ aggregate initialization warnings
-  thumbDecl.floating.offset = {animatedX, pad};
-  thumbDecl.floating.parentId = switchId.id;
-  thumbDecl.floating.zIndex = 500;
-  thumbDecl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
+  Interaction result = Div(std::move(switchStyle), [&]() {
+    Div(DefaultModifier()
+            .absolute()
+            .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
+            .offset(animatedX, pad)
+            .size(thumbSize, thumbSize)
+            .background(Colors::white)
+            .rounded(thumbSize * 0.5f));
+  });
 
-  thumbDecl.backgroundColor = {255.0f, 255.0f, 255.0f, 255.0f};
-  thumbDecl.cornerRadius = {thumbSize * 0.5f, thumbSize * 0.5f,
-                            thumbSize * 0.5f, thumbSize * 0.5f};
-  thumbDecl.layout = {.sizing = {.width = CLAY_SIZING_FIXED(thumbSize),
-                                 .height = CLAY_SIZING_FIXED(thumbSize)}};
-
-  Clay__ConfigureOpenElement(thumbDecl);
-  Clay__CloseElement(); // Close SwitchThumb
-
-  Clay__CloseElement(); // Close Switch Container
-
-  Interaction result{};
-  result.hovered = isHovered;
-  result.pressed = checked;
   result.clicked = clicked;
+  result.pressed = checked;
 
   return result;
 }

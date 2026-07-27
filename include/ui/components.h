@@ -1,7 +1,12 @@
+#pragma once
+
 #include "animation/animation.h"
 #include "avk/atomic_ui.h"
 #include "ui/color.h"
 #include "ui/lucide-icons.generated.h"
+#include <functional>
+#include <string>
+#include <vector>
 
 namespace atomic {
 
@@ -10,8 +15,8 @@ inline const glm::vec4 DEFAULT_BACKGROUND_NORMAL = "#151515"_hex;
 inline const glm::vec4 DEFAULT_BORDER_NORMAL = "#2f2f2f"_hex;
 inline const glm::vec4 DEFAULT_BORDER_RADIUS = glm::vec4(6.0f);
 inline const float DEFAULT_BORDER_WIDTH = 1.0f;
-namespace Curves {
 
+namespace Curves {
 inline const AnimationCurve AppleEaseOut =
     AnimationCurve::Custom(0.16f, 1.00f, 0.30f, 1.00f);
 inline const AnimationCurve AppleSnappy =
@@ -24,147 +29,174 @@ inline const AnimationCurve SmoothSwift =
     AnimationCurve::Custom(0.40f, 0.00f, 0.20f, 1.00f);
 } // namespace Curves
 
-/*
- * @brief A basic Column component
- * */
-void Column(Modifier &&modifier, const std::function<void()> &content);
+/**
+ * @brief Universal layout container element (Flexbox box model).
+ */
+Interaction Div(Modifier &&modifier = DefaultModifier(),
+                const std::function<void()> &content = nullptr);
 
-/*
- * @brief A basic Row component
- * */
-void Row(Modifier &&modifier, const std::function<void()> &content);
+/**
+ * @brief Convenience inline wrapper for Row direction Div containers.
+ */
+inline Interaction Row(Modifier &&modifier = DefaultModifier(),
+                       const std::function<void()> &content = nullptr) {
+  return Div(std::move(modifier).row(), content);
+}
+
+/**
+ * @brief Convenience inline wrapper for Column direction Div containers.
+ */
+inline Interaction Column(Modifier &&modifier = DefaultModifier(),
+                          const std::function<void()> &content = nullptr) {
+  return Div(std::move(modifier).column(), content);
+}
 
 /**
  * @brief Renders a styled vector image component.
- * @param textureIndex Index of the GPU-uploaded boundless texture.
- * @param tint Color multiplier to tint the image (Defaults to white).
  */
 Interaction Image(Modifier &&modifier, uint32_t textureIndex,
                   const glm::vec4 &tint = glm::vec4(1.0f));
 
 /**
- * @brief Renders a styled, interactive, layout-integrated text component.
+ * @brief Renders a styled, layout-integrated text component.
  */
 Interaction Text(const std::string &text, uint32_t fontId,
                  Modifier &&modifier = DefaultModifier());
 
-// overload with no fontID
+/**
+ * @brief Overload for Text using default or inherited font ID.
+ */
 Interaction Text(const std::string &text,
                  Modifier &&modifier = DefaultModifier());
 
-// notRecommendedForUse: overloaded for internal use only
+/**
+ * @brief Internal overload for Text with explicit element ID.
+ */
 Interaction Text(const std::string &text, uint32_t fontId,
                  Clay_ElementId textId,
                  Modifier &&modifier = DefaultModifier());
 
 /**
- * @brief Clean interactive Button layout component with optional child
- * composition.
+ * @brief Interactive composable Button component.
  */
-Interaction Button(Modifier &&modifier,
-                   const std::function<void()> &content = nullptr);
+Interaction Button(Modifier &&modifier, const std::function<void()> &content);
 
-// Convenience overload that wraps your layout Button
-inline Interaction Button(const std::string &label,
-                          Modifier &&modifier = Modifier{},
-                          glm::vec4 textColor = "#ffffff"_hex) {
-  return Button(std::move(modifier), [label, textColor]() {
-    Text(label, DefaultModifier().color(textColor));
-  });
-}
 /**
- * @brief Renders a highly interactive immediate-mode text input box with full
- * selection and controls.
- * @param textBuffer Reference to the std::string that will hold the typed
- * characters.
- * @param placeholder Fallback placeholder text shown when the buffer is empty.
+ * @brief Convenience string label overload for Button.
+ * Text automatically inherits button text color via Style Cascade Engine.
+ */
+inline Interaction Button(const std::string &label,
+                          Modifier &&modifier = Modifier{}) {
+  return Button(std::move(modifier), [label]() { Text(label); });
+}
+
+/**
+ * @brief Interactive immediate-mode text input component.
  */
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                       const std::string &placeholder, uint32_t fontId);
 
-Interaction TextInput(std::string &textBuffer, const std::string &placeholder,
+/**
+ * @brief Convenience overload for TextInput using default font.
+ */
+Interaction TextInput(std::string &textBuffer,
+                      const std::string &placeholder = "",
                       Modifier &&modifier = DefaultModifier());
 
-enum class DropdownPlacement {
-  Smart,  // Radix UI / macOS style: centers dropdown over header at selected
-          // item
-  Bottom, // Standard dropdown below header
-  Top,    // Popup above header
-  Left,   // Popup to the left
-  Right   // Popup to the right
-};
+/**
+ * @brief Placement positioning modes for Select dropdown menus.
+ */
+enum class DropdownPlacement { Smart, Bottom, Top, Left, Right };
 
+/**
+ * @brief Dropdown select menu component with explicit font ID.
+ */
 Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                    const std::vector<std::string> &options, uint32_t fontId,
                    DropdownPlacement placement = DropdownPlacement::Smart);
 
+/**
+ * @brief Dropdown select menu component using default font.
+ */
 Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                    const std::vector<std::string> &options,
                    DropdownPlacement placement = DropdownPlacement::Smart);
 
 /**
- * @brief Rich styling and behavior configuration for ScrollViews.
+ * @brief Configuration parameters for ScrollView styling and behavior.
  */
 struct ScrollViewConfig {
   bool smoothScrolling = true;
-  float smoothFactor = 0.05f; // more smother when this number is lower
+  float smoothFactor = 0.05f;
 
-  // Visibility toggles
   bool showVerticalBar = true;
   bool showHorizontalBar = false;
 
-  // Detailed Scrollbar Customizations
-  float scrollbarWidth = 6.0f;  // Width of the vertical bar handle
-  float scrollbarRadius = 3.0f; // Corner rounding of the handle
-  float scrollbarMarginRight =
-      4.0f; // Spacing gap between handle and right container edge
-  float scrollbarMarginBottom =
-      4.0f; // Spacing gap between handle and bottom container edge
-  float scrollbarMinThumbSize = 24.0f; // Minimum physical height of the handle
+  float scrollbarWidth = 6.0f;
+  float scrollbarRadius = 3.0f;
+  float scrollbarMarginRight = 4.0f;
+  float scrollbarMarginBottom = 4.0f;
+  float scrollbarMinThumbSize = 24.0f;
 
-  // Dynamic, interactive scrollbar handle colors
-  glm::vec4 scrollbarColor =
-      glm::vec4(1.0f, 1.0f, 1.0f, 0.20f); // Default subtle white
-  glm::vec4 scrollbarColorHover =
-      glm::vec4(1.0f, 1.0f, 1.0f, 0.45f); // Brightens on hover
-  glm::vec4 scrollbarColorPressed =
-      glm::vec4(1.0f, 1.0f, 1.0f, 0.65f); // Glows while dragged
+  glm::vec4 scrollbarColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.20f);
+  glm::vec4 scrollbarColorHover = glm::vec4(1.0f, 1.0f, 1.0f, 0.45f);
+  glm::vec4 scrollbarColorPressed = glm::vec4(1.0f, 1.0f, 1.0f, 0.65f);
 };
 
-// Full version with explicit config
+/**
+ * @brief Scrollable viewport container with custom configuration.
+ */
 void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                 std::function<void()> contentCallback);
 
-// Convenience version using default config (most common usage)
+/**
+ * @brief Scrollable viewport container with default configuration.
+ */
 inline void ScrollView(Modifier &&modifier,
                        std::function<void()> contentCallback) {
   ScrollView(std::move(modifier), ScrollViewConfig{},
              std::move(contentCallback));
 }
 
-// Convenience version with default modifier and default config
+/**
+ * @brief Scrollable viewport container with default modifier and config.
+ */
 inline void ScrollView(std::function<void()> contentCallback) {
   ScrollView(DefaultModifier(), ScrollViewConfig{}, std::move(contentCallback));
 }
 
 /**
- * @brief Renders a beautiful, animated shadcn-style sliding switch/toggle.
- * @param checked Reference to the boolean tracking if the switch is ON or OFF.
- * @return An Interaction state block.
+ * @brief Animated sliding toggle switch component.
  */
 Interaction Switch(Modifier &&modifier, bool &checked);
 
 /**
- * @brief Renders a razor-sharp, point-filtered vector Lucide icon.
- * @param name The official Lucide icon name (e.g. "search", "settings",
- * "chevron-down").
+ * @brief Vector icon rendering component using Lucide glyph codepoints.
  */
-Interaction Icon(LucideIcon icon, Modifier &&modifier);
+Interaction Icon(LucideIcon icon, Modifier &&modifier = DefaultModifier());
+
 /**
- * @brief Renders a beautiful, animated shadcn-style checkbox with a vector
- * checkmark.
- * @param checked Reference to the boolean tracking the checked state.
- * @return An Interaction state block.
+ * @brief Animated checkbox component with vector checkmark.
  */
 Interaction Checkbox(Modifier &&modifier, bool &checked);
+
 } // namespace atomic
+
+namespace atomicComponents {
+
+/**
+ * @brief Floating animated toast component.
+ */
+void Toast(std::function<void()> triggerCallback,
+           std::function<void()> toastContentCallback,
+           atomic::Modifier &&modifier = atomic::Modifier());
+
+/**
+ * @brief Floating popover overlay component with automatic outside-click
+ * dismissal.
+ */
+void Popover(bool &isOpen, std::function<void()> triggerCallback,
+             std::function<void()> popupCallback,
+             atomic::Modifier &&popupModifier = atomic::Modifier());
+
+} // namespace atomicComponents

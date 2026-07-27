@@ -92,10 +92,23 @@ private:
 // 2. Global / Immediate-Mode Animation Manager
 // ============================================================================
 
-struct AnimState {
+struct AnimStateFloat {
+  bool initialized{false};
   float currentValue{0.0f};
   float startValue{0.0f};
   float targetValue{0.0f};
+  float elapsedTime{0.0f};
+  float duration{0.2f};
+  AnimationCurve curve{AnimationCurve::EaseOut()};
+  bool isAnimating{false};
+  uint64_t lastFrameTouched{0};
+};
+
+struct AnimStateVec4 {
+  bool initialized{false};
+  glm::vec4 currentValue{0.0f};
+  glm::vec4 startValue{0.0f};
+  glm::vec4 targetValue{0.0f};
   float elapsedTime{0.0f};
   float duration{0.2f};
   AnimationCurve curve{AnimationCurve::EaseOut()};
@@ -117,10 +130,17 @@ public:
 
   float animate(uint32_t elementId, float targetValue, float duration,
                 const AnimationCurve &curve, float speed = 1.0f) {
-    auto &state = m_states[elementId];
+    auto &state = m_floatStates[elementId];
     state.lastFrameTouched = m_currentFrame;
 
-    // Target changed: Retarget animation smoothly from current position
+    // Fix 1: Snap to target on very first frame (prevents 0.0f pop)
+    if (!state.initialized) {
+      state.currentValue = targetValue;
+      state.targetValue = targetValue;
+      state.initialized = true;
+      return state.currentValue;
+    }
+
     if (state.targetValue != targetValue) {
       state.startValue = state.currentValue;
       state.targetValue = targetValue;
@@ -149,20 +169,59 @@ public:
     return state.currentValue;
   }
 
-  glm::vec4 animateVec4(uint32_t elementId, const glm::vec4 &target,
-                        float duration, const AnimationCurve &curve) {
-    float r = animate(elementId + 0x10000000, target.r, duration, curve);
-    float g = animate(elementId + 0x20000000, target.g, duration, curve);
-    float b = animate(elementId + 0x30000000, target.b, duration, curve);
-    float a = animate(elementId + 0x40000000, target.a, duration, curve);
-    return glm::vec4(r, g, b, a);
+  // Fix 2: Native Vec4 interpolation (prevents ID collisions)
+  glm::vec4 animateVec4(uint32_t elementId, const glm::vec4 &targetValue,
+                        float duration, const AnimationCurve &curve,
+                        float speed = 1.0f) {
+    auto &state = m_vec4States[elementId];
+    state.lastFrameTouched = m_currentFrame;
+
+    if (!state.initialized) {
+      state.currentValue = targetValue;
+      state.targetValue = targetValue;
+      state.initialized = true;
+      return state.currentValue;
+    }
+
+    if (state.targetValue != targetValue) {
+      state.startValue = state.currentValue;
+      state.targetValue = targetValue;
+      state.elapsedTime = 0.0f;
+      state.duration = std::max(duration / std::max(speed, 0.001f), 0.001f);
+      state.curve = curve;
+      state.isAnimating = true;
+    }
+
+    if (state.isAnimating) {
+      state.elapsedTime += m_deltaTime;
+      float progress =
+          std::clamp(state.elapsedTime / state.duration, 0.0f, 1.0f);
+      float easedProgress = state.curve.evaluate(progress);
+
+      // glm::mix is the GLM equivalent of Lerp
+      state.currentValue =
+          glm::mix(state.startValue, state.targetValue, easedProgress);
+
+      if (progress >= 1.0f) {
+        state.currentValue = state.targetValue;
+        state.isAnimating = false;
+      }
+    }
+
+    return state.currentValue;
   }
 
-  // Clean up unused animation states to prevent memory leaks
   void gc(uint64_t maxUnusedFrames = 120) {
-    for (auto it = m_states.begin(); it != m_states.end();) {
+    for (auto it = m_floatStates.begin(); it != m_floatStates.end();) {
       if (m_currentFrame - it->second.lastFrameTouched > maxUnusedFrames) {
-        it = m_states.erase(it);
+        it = m_floatStates.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    for (auto it = m_vec4States.begin(); it != m_vec4States.end();) {
+      if (m_currentFrame - it->second.lastFrameTouched > maxUnusedFrames) {
+        it = m_vec4States.erase(it);
       } else {
         ++it;
       }
@@ -170,15 +229,43 @@ public:
   }
 
 private:
-  std::unordered_map<uint32_t, AnimState> m_states;
+  std::unordered_map<uint32_t, AnimStateFloat> m_floatStates;
+  std::unordered_map<uint32_t, AnimStateVec4> m_vec4States;
   float m_deltaTime{0.016f};
   uint64_t m_currentFrame{0};
 };
 
 // ============================================================================
-// 3. Convenience Component Hooks
+// 3. Convenience Component Hooks (Supports both integer IDs and String Labels!)
 // ============================================================================
 
+inline uint32_t hashLabel(const std::string &label) {
+  uint32_t hash = 2166136261u;
+  for (char c : label) {
+    hash ^= static_cast<uint32_t>(c);
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+// String Label Overload for AnimateFloat
+inline float AnimateFloat(const std::string &label, float target,
+                          float duration = 0.2f,
+                          AnimationCurve curve = AnimationCurve::EaseOut(),
+                          float speed = 1.0f) {
+  return AnimationManager::instance().animate(hashLabel(label), target,
+                                              duration, curve, speed);
+}
+
+// String Label Overload for AnimateVec4
+inline glm::vec4 AnimateVec4(const std::string &label, const glm::vec4 &target,
+                             float duration = 0.2f,
+                             AnimationCurve curve = AnimationCurve::EaseOut()) {
+  return AnimationManager::instance().animateVec4(hashLabel(label), target,
+                                                  duration, curve);
+}
+
+// Integer ID Overloads (Existing)
 inline float AnimateFloat(uint32_t id, float target, float duration = 0.2f,
                           AnimationCurve curve = AnimationCurve::EaseOut(),
                           float speed = 1.0f) {
@@ -191,5 +278,4 @@ inline glm::vec4 AnimateVec4(uint32_t id, const glm::vec4 &target,
                              AnimationCurve curve = AnimationCurve::EaseOut()) {
   return AnimationManager::instance().animateVec4(id, target, duration, curve);
 }
-
 } // namespace atomic

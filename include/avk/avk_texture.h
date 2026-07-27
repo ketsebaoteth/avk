@@ -68,6 +68,15 @@ public:
   VkSampler getSharedSampler() const { return m_sharedSampler; }
   VkSampler getFontSampler() const { return m_fontSampler; }
 
+  // returns the extent of a texture
+  VkExtent2D getTextureExtent(uint32_t index) const {
+    if (index < m_textures.size() && m_textures[index]) {
+      return {m_textures[index]->image.getExtent().width,
+              m_textures[index]->image.getExtent().height};
+    }
+    return {100, 100}; // Fallback
+  }
+
 private:
   void release();
   void createDescriptorSet();
