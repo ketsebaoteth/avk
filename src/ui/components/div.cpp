@@ -11,7 +11,7 @@ namespace atomic {
  */
 Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
 
   Clay_ElementId divId = utils::layout::getNextId("Div");
   Clay__OpenElementWithId(divId);

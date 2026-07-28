@@ -1,8 +1,9 @@
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
 #include "ui/components.h"
+#include "ui/core/resources.h"
+#include "ui/utils/clayUtils.h"
 
 namespace atomic {
 
@@ -28,7 +29,7 @@ Interaction Text(const std::string &text, uint32_t fontId,
 Interaction Text(const std::string &text, uint32_t fontId,
                  Clay_ElementId textId, Modifier &&modifier) {
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
 
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};

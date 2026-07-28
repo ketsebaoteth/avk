@@ -1,5 +1,4 @@
 #define CLAY_IMPLEMENTATION
-#include "avk/atomic_ui.h"
 #include "clay.h"
 #include <string>
 

@@ -1,6 +1,7 @@
 #pragma once
-#include "avk/atomic_ui.h"
 #include "clay.h"
+#include "ui/internal/context.h"
+#include "ui/layout/computedLayout.h"
 #include <cstring>
 #include <print>
 
@@ -10,14 +11,11 @@ inline void handleClayError(Clay_ErrorData error) {
   std::println("[Clay Layout]: {}", error.errorText.chars);
 }
 
-atomic::UIState *getUiState();
-uint32_t &getElementIdCounter();
-
 inline Clay_ElementId getNextId(const char *label) {
   char buffer[64];
 
   // Fetch the centralized global reference and post-increment it
-  uint32_t currentId = getElementIdCounter()++;
+  uint32_t currentId = atomic::getElementIdCounter()++;
   std::snprintf(buffer, sizeof(buffer), "%s_%u", label, currentId);
 
   return Clay_GetElementId(
@@ -39,7 +37,7 @@ struct PositioningContextGuard {
   PositioningContextGuard(uint32_t elementId, atomic::Position positionType) {
     if (positionType == atomic::Position::Relative ||
         positionType == atomic::Position::Absolute) {
-      auto *uiState = utils::layout::getUiState();
+      auto *uiState = atomic::getUiState();
       if (uiState) {
         uiState->positioningContextStack.push_back(elementId);
         active = true;
@@ -49,7 +47,7 @@ struct PositioningContextGuard {
 
   ~PositioningContextGuard() {
     if (active) {
-      auto *uiState = utils::layout::getUiState();
+      auto *uiState = atomic::getUiState();
       if (uiState) {
         auto &stack = uiState->positioningContextStack;
         if (!stack.empty()) {
@@ -181,7 +179,7 @@ inline void applyStyleToLayout(Clay_ElementDeclaration &decl,
         decl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
       } else {
         // Priority 2: Use nearest Relative Parent from the context stack
-        auto *uiState = getUiState();
+        auto *uiState = atomic::getUiState();
         if (uiState && !uiState->positioningContextStack.empty()) {
           decl.floating.parentId = uiState->positioningContextStack.back();
           decl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
@@ -223,7 +221,7 @@ inline atomic::RenderPayload *createFramePayload(
   payload->objectFit = style.objectFit.value_or(atomic::ObjectFit::Fill);
 
   auto *ptr = payload.get();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = atomic::getUiState();
   if (uiState) {
     uiState->framePayloads.push_back(std::move(payload));
   }
@@ -238,7 +236,7 @@ struct StyleCascadeGuard {
   bool active = false;
 
   explicit StyleCascadeGuard(const atomic::Style &style) {
-    auto *uiState = getUiState();
+    auto *uiState = atomic::getUiState();
     if (uiState) {
       atomic::CascadingStyle current = uiState->getActiveCascadingStyle();
       bool modified = false;
@@ -273,7 +271,7 @@ struct StyleCascadeGuard {
 
   ~StyleCascadeGuard() {
     if (active) {
-      auto *uiState = getUiState();
+      auto *uiState = atomic::getUiState();
       if (uiState && !uiState->cascadingStyleStack.empty()) {
         uiState->cascadingStyleStack.pop_back();
       }
@@ -325,7 +323,7 @@ inline glm::vec2 getComputedPosition(const char *label) {
 
 /// Returns the active inherited style in the current layout scope
 inline atomic::CascadingStyle getCurrentStyle() {
-  auto *uiState = getUiState();
+  auto *uiState = atomic::getUiState();
   if (uiState) {
     return uiState->getActiveCascadingStyle();
   }
@@ -334,7 +332,7 @@ inline atomic::CascadingStyle getCurrentStyle() {
 
 /// Returns the final resolved style of any specific element ID
 inline atomic::CascadingStyle getComputedStyle(uint32_t elementId) {
-  auto *uiState = getUiState();
+  auto *uiState = atomic::getUiState();
   if (uiState) {
     auto it = uiState->computedStyleMap.find(elementId);
     if (it != uiState->computedStyleMap.end()) {

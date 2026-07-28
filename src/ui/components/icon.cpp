@@ -1,7 +1,7 @@
-#include "avk/atomic_ui.h"
 #include "clay.h"
 #include "ui/components.h"
-#include "ui/lucide-icons.generated.h"
+#include "ui/generated/lucideIcons.generated.h"
+#include "ui/utils/coreUtils.h"
 #include <unordered_map>
 
 namespace {

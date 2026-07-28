@@ -1,10 +1,9 @@
-#include "animation/animation.h" // Access AnimateFloat and AnimateVec4
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
+#include "ui/animation/animation.h"
 #include "ui/components.h"
-#include "ui/lucide-icons.generated.h"
+#include "ui/generated/lucideIcons.generated.h"
 
 namespace atomic {
 
@@ -13,7 +12,7 @@ namespace atomic {
  */
 Interaction Checkbox(Modifier &&modifier, bool &checked) {
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
 
   Clay_ElementId checkboxId = utils::layout::getNextId("Checkbox");
 

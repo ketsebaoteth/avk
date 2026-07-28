@@ -1,8 +1,6 @@
-#include "animation/animation.h"
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/layout.h"
+#include "ui/animation/animation.h"
 #include "ui/components.h"
-#include <algorithm>
 #include <unordered_map>
 
 namespace atomic {
@@ -18,8 +16,6 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
 
   Style style = modifier.getStyle();
 
-  // Pure & Non-Intrusive: Use the EXACT background color specified by the
-  // caller
   glm::vec4 baseBg = style.backgroundColor.value_or(DEFAULT_BACKGROUND_NORMAL);
 
   float targetScale = wasPressed ? 0.98f : 1.0f;

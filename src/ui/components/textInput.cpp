@@ -1,10 +1,9 @@
-#include "avk/atomic_ui.h"
 #include "avk/avk_font.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
-#include "ui/color.h"
 #include "ui/components.h"
-#include <algorithm>
+#include "ui/core/resources.h"
+#include "ui/utils/color.h"
 
 namespace {
 
@@ -150,7 +149,7 @@ namespace atomic {
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                       const std::string &placeholder, uint32_t fontId) {
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
 
   Clay_ElementId textInputId = utils::layout::getNextId("TextInput");
   uint32_t elementId = textInputId.id;

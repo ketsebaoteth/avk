@@ -1,4 +1,3 @@
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
@@ -12,7 +11,7 @@ namespace atomic {
 Interaction Image(Modifier &&modifier, uint32_t textureIndex,
                   const glm::vec4 &tint) {
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
 
   Clay_ElementId imageId = utils::layout::getNextId("Image");
   Clay__OpenElementWithId(imageId);

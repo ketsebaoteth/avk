@@ -1,12 +1,13 @@
 #pragma once
-
 #include "animation/animation.h"
-#include "avk/atomic_ui.h"
-#include "ui/color.h"
-#include "ui/lucide-icons.generated.h"
+#include "ui/generated/lucideIcons.generated.h"
+#include "ui/renderer/interaction.h"
+#include "ui/style/modifier.h"
+#include "ui/utils/color.h"
 #include <functional>
 #include <string>
-#include <vector>
+
+struct Clay_ElementId;
 
 namespace atomic {
 

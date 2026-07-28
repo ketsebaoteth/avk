@@ -1,368 +1,59 @@
-#define NOMINMAX
-#include "animation/animation.h"
-#include "avk/atomic_ui.h"
-#include "avk/avk_canvas.h"
-#include "avk/avk_core.h"
-#include "avk/avk_font.h"
-#include "avk/avk_renderer.h"
+#include "ui/core/frame.h"
+#include "Vera/src/vera_windowing/core/app/Types.h"
 #include "avk/utils/ui/layout.h"
-#include "clay.h"
-#include "core/app/Types.h"
-#include <algorithm>
-#include <chrono>
-#include <filesystem>
-#include <iostream>
-#include <memory>
-#include <vector>
-
-#ifndef AVK_ASSETS_DIR
-#define AVK_ASSETS_DIR "assets"
-#endif
+#include "ui/animation/animation.h"
+#include "ui/internal/context.h"
+#include "ui/utils/clayUtils.h"
+#include "ui/utils/coreUtils.h"
+#include <cstdint>
 
 namespace atomic {
 
-std::unique_ptr<UIState> g_uiState = nullptr;
-[[maybe_unused]] static void *g_clayArenaMemory = nullptr;
-uint32_t g_elementIdCounter = 0;
-
-std::string getPath(const std::string &relativePath) {
-  namespace fs = std::filesystem;
-  fs::path path(relativePath);
-
-  if (path.is_absolute()) {
-    return path.string();
-  }
-
-  fs::path baseAssetsDir(AVK_ASSETS_DIR);
-
-  if (path.has_parent_path() && path.begin()->string() == "assets") {
-    return path.string();
-  }
-
-  return (baseAssetsDir / path).string();
-}
-
-uint32_t loadFont(const std::string &path, uint32_t fontSize,
-                  const std::vector<uint32_t> &codepoints) {
-  if (!g_uiState)
-    return 0;
-
-  auto font = std::make_unique<avk::Font>(g_uiState->context.get(),
-                                          getPath(path), fontSize, codepoints);
-  g_uiState->fonts.push_back(std::move(font));
-
-  return static_cast<uint32_t>(g_uiState->fonts.size() - 1);
-}
-
-uint32_t loadFont(const std::string &path, uint32_t fontSize) {
-  return loadFont(path, fontSize, {});
-}
-
-static Clay_Dimensions measureTextCallback(Clay_StringSlice text,
-                                           Clay_TextElementConfig *config,
-                                           void *userData) {
-  (void)userData;
-  if (!g_uiState || config->fontId >= g_uiState->fonts.size()) {
-    return Clay_Dimensions{0.0f, 0.0f};
-  }
-
-  std::string str(text.chars, text.length);
-  glm::vec2 size = g_uiState->fonts[config->fontId]->measureText(str);
-
-  return Clay_Dimensions{size.x, size.y};
-}
-
-uint32_t getClosestIconFontId(float requestedSize) {
-  if (!utils::layout::getUiState())
-    return 0;
-
-  static constexpr std::array<float, 5> TIERS = {12.0f, 16.0f, 24.0f, 32.0f,
-                                                 48.0f};
-
-  uint32_t closestIndex = 1;
-  float minDiff = std::abs(requestedSize - TIERS[1]);
-
-  for (size_t i = 0; i < TIERS.size(); ++i) {
-    float diff = std::abs(requestedSize - TIERS[i]);
-    if (diff < minDiff) {
-      minDiff = diff;
-      closestIndex = static_cast<uint32_t>(i);
-    }
-  }
-
-  return utils::layout::getUiState()->defaultIconFontIds[closestIndex];
-}
-
-void initialize(std::optional<VeraNativeHandle> nativeDisplay,
-                bool enableValidation) {
-  g_uiState = std::make_unique<UIState>();
-
-  g_uiState->context =
-      std::make_unique<avk::VulkanContext>(nativeDisplay, enableValidation);
-
-  g_uiState->renderer =
-      std::make_unique<avk::Renderer>(g_uiState->context.get());
-
-  uint64_t totalMemorySize = Clay_MinMemorySize();
-  g_clayArenaMemory = std::malloc(totalMemorySize);
-  Clay_Arena arena =
-      Clay_CreateArenaWithCapacityAndMemory(totalMemorySize, g_clayArenaMemory);
-  Clay_Initialize(arena, Clay_Dimensions{800, 600},
-                  Clay_ErrorHandler{utils::layout::handleClayError, nullptr});
-  Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
-
-  g_uiState->defaultFontId = loadFont("fonts/Inter_24pt-Regular.ttf", 19);
-
-  std::vector<uint32_t> iconCodepoints;
-  iconCodepoints.reserve(6400);
-  for (uint32_t i = 0xE000; i <= 0xF8FF; ++i) {
-    iconCodepoints.push_back(i);
-  }
-
-  g_uiState->defaultIconFontIds[0] =
-      loadFont("fonts/lucide.ttf", 12, iconCodepoints);
-  g_uiState->defaultIconFontIds[1] =
-      loadFont("fonts/lucide.ttf", 16, iconCodepoints);
-  g_uiState->defaultIconFontIds[2] =
-      loadFont("fonts/lucide.ttf", 24, iconCodepoints);
-  g_uiState->defaultIconFontIds[3] =
-      loadFont("fonts/lucide.ttf", 32, iconCodepoints);
-  g_uiState->defaultIconFontIds[4] =
-      loadFont("fonts/lucide.ttf", 48, iconCodepoints);
-}
-
-uint32_t getDefaultFontId() { return g_uiState ? g_uiState->defaultFontId : 0; }
-
-void shutdown() {
-  if (!g_uiState)
-    return;
-
-  if (g_uiState->context && g_uiState->context->isValid()) {
-    vkDeviceWaitIdle(g_uiState->context->getDevice());
-  }
-
-  g_uiState->sessions.clear();
-  g_uiState->renderer.reset();
-  g_uiState->context.reset();
-
-  if (g_uiState->clayArenaMemory) {
-    std::free(g_uiState->clayArenaMemory);
-  }
-
-  g_uiState.reset();
-}
-
-void registerWindow(VeraWindow *window) {
-  if (!g_uiState)
-    return;
-  VeraNativeHandle native = window->getNativeHandle();
-  VkSurfaceKHR surface = VK_NULL_HANDLE;
-
-#if defined(VERA_PLATFORM_WIN32)
-  surface = g_uiState->context->createWin32Surface(native.hwnd,
-                                                   GetModuleHandle(nullptr));
-#elif defined(VERA_PLATFORM_LINUX)
-  if (native.waylandSurface != nullptr) {
-    surface = g_uiState->context->createWaylandSurface(native.display,
-                                                       native.waylandSurface);
-  } else {
-    surface =
-        g_uiState->context->createX11Surface(native.display, native.x11Window);
-  }
-#endif
-
-  if (surface == VK_NULL_HANDLE) {
-    std::cerr << "avk: Failed to map native surface inside atomicUI."
-              << std::endl;
-    return;
-  }
-
-  float scale = window->getCurrentMonitor().dpiScale;
-  int32_t intScale = static_cast<int32_t>(std::ceil(scale));
-  if (intScale < 1) {
-    intScale = 1;
-  }
-
-  auto state = window->getState();
-  uint32_t physicalWidth = state.width * intScale;
-  uint32_t physicalHeight = state.height * intScale;
-  auto canvas = std::make_unique<avk::WindowCanvas>(
-      g_uiState->context.get(), surface, physicalWidth, physicalHeight);
-
-  g_uiState->sessions.push_back(
-      window::WindowSession{window, surface, std::move(canvas),
-                            std::chrono::high_resolution_clock::now(), 0.016f});
-
-  window->setScrollCallback([&](double xOffset, double yOffset) {
-    g_uiState->mouseWheelDeltaX += static_cast<float>(xOffset);
-    g_uiState->mouseWheelDeltaY += static_cast<float>(yOffset);
-  });
-
-  window->setMouseMoveCallback([](double x, double y) {
-    if (!g_uiState)
-      return;
-    g_uiState->pointerPos =
-        glm::vec2(static_cast<float>(x), static_cast<float>(y));
-  });
-
-  window->setMouseButtonCallback([](VeraMouseButton button, bool pressed) {
-    if (!g_uiState)
-      return;
-    if (button == VeraMouseButton::Left) {
-      if (pressed) {
-        g_uiState->pointerPressed = true;
-        g_uiState->pointerDown = true;
-      } else {
-        g_uiState->pointerPressed = false;
-        g_uiState->pointerDown = false;
-      }
-    }
-  });
-
-  window->setCharCallback([](uint32_t codepoint) {
-    if (!g_uiState)
-      return;
-
-    if (g_uiState->focusedElementId != 0 && codepoint >= 32) {
-      g_uiState->capturedChars.push_back(codepoint);
-    }
-  });
-
-  window->setKeyCallback([](VeraKey key, bool pressed, bool repeat) {
-    if (!g_uiState)
-      return;
-    (void)repeat;
-
-    if (key == VeraKey::LeftCtrl || key == VeraKey::RightCtrl) {
-      g_uiState->ctrlPressed = pressed;
-    }
-    if (key == VeraKey::LeftShift || key == VeraKey::RightShift) {
-      g_uiState->shiftPressed = pressed;
-    }
-
-    if (g_uiState->focusedElementId != 0 && pressed) {
-      if (key == VeraKey::Backspace) {
-        g_uiState->backspacePressed = true;
-      } else if (key == VeraKey::Enter) {
-        g_uiState->enterPressed = true;
-      } else if (key == VeraKey::Delete) {
-        g_uiState->deletePressed = true;
-      } else if (key == VeraKey::Left) {
-        g_uiState->leftArrowPressed = true;
-      } else if (key == VeraKey::Right) {
-        g_uiState->rightArrowPressed = true;
-      } else if (key == VeraKey::ALower && g_uiState->ctrlPressed) {
-        g_uiState->selectAll = true;
-      }
-    }
-  });
-}
-
-void unregisterWindow(VeraWindow *window) {
-  if (!g_uiState)
-    return;
-
-  auto it = std::remove_if(
-      g_uiState->sessions.begin(), g_uiState->sessions.end(),
-      [window](const window::WindowSession &s) { return s.window == window; });
-  if (it != g_uiState->sessions.end()) {
-    vkDeviceWaitIdle(g_uiState->context->getDevice());
-    g_uiState->sessions.erase(it, g_uiState->sessions.end());
-  }
-}
-
+/** @brief Begins a new UI frame pass for a window. */
 bool beginFrame(VeraWindow *window) {
-  if (!g_uiState || window == nullptr)
+  auto uiState = getUiState();
+  if (!uiState || window == nullptr)
     return false;
 
-  window::WindowSession *session = g_uiState->findSession(window);
+  window::WindowSession *session = uiState->findSession(window);
   if (session == nullptr || !session->canvas->isActive())
     return false;
 
-  g_uiState->computedStyleMap.clear();
-  g_uiState->positioningContextStack.clear();
-  g_uiState->cascadingStyleStack.clear();
+  uiState->computedStyleMap.clear();
+  uiState->positioningContextStack.clear();
+  uiState->cascadingStyleStack.clear();
 
-  Clay_SetPointerState(
-      Clay_Vector2{g_uiState->pointerPos.x, g_uiState->pointerPos.y},
-      g_uiState->pointerDown);
-
-  auto currentTime = std::chrono::high_resolution_clock::now();
-  session->lastDeltaTime =
-      std::chrono::duration<float>(currentTime - session->lastTime).count();
-  session->lastTime = currentTime;
-
+  setClayCursorState(uiState->pointerPos, uiState->pointerDown);
+  calcFrameDeltaTime(session);
   atomic::AnimationManager::instance().update(session->lastDeltaTime);
+  resetGlobalIdCounter();
 
-  g_elementIdCounter = 0;
   auto state = window->getState();
-  auto clayDimensions = Clay_Dimensions{};
-  clayDimensions.width = static_cast<float>(state.width);
-  clayDimensions.height = static_cast<float>(state.height);
-
-  Clay_SetLayoutDimensions(clayDimensions);
+  setClayDimensions(state);
   Clay_BeginLayout();
 
   auto val = session->canvas->beginFrame();
   return val;
 }
 
-static uint32_t decodeNextUtf8(const char *chars, int32_t length,
-                               uint32_t &index) {
-  if (index >= static_cast<uint32_t>(length))
-    return 0;
-
-  unsigned char c = chars[index++];
-
-  if (c < 0x80)
-    return c;
-
-  if ((c & 0xE0) == 0xC0) {
-    if (index >= static_cast<uint32_t>(length))
-      return c;
-    uint32_t res = (c & 0x1F) << 6;
-    res |= (static_cast<unsigned char>(chars[index++]) & 0x3F);
-    return res;
-  }
-
-  if ((c & 0xF0) == 0xE0) {
-    if (index + 1 >= static_cast<uint32_t>(length))
-      return c;
-    uint32_t res = (c & 0x0F) << 12;
-    res |= (static_cast<unsigned char>(chars[index++]) & 0x3F) << 6;
-    res |= (static_cast<unsigned char>(chars[index++]) & 0x3F);
-    return res;
-  }
-
-  if ((c & 0xF8) == 0xF0) {
-    if (index + 2 >= static_cast<uint32_t>(length))
-      return c;
-    uint32_t res = (c & 0x07) << 18;
-    res |= (static_cast<unsigned char>(chars[index++]) & 0x3F) << 12;
-    res |= (static_cast<unsigned char>(chars[index++]) & 0x3F) << 6;
-    res |= (static_cast<unsigned char>(chars[index++]) & 0x3F);
-    return res;
-  }
-
-  return c;
-}
-
+/** @brief Ends layout evaluation and submits rendering instances to GPU. */
 void endFrame(VeraWindow *window) {
-  if (!g_uiState)
+  auto uiState = getUiState();
+  if (!uiState)
     return;
 
-  window::WindowSession *session = g_uiState->findSession(window);
+  window::WindowSession *session = uiState->findSession(window);
   if (!session)
     return;
 
-  if (g_uiState->pointerPressed && !g_uiState->anyInputBoxHovered) {
-    g_uiState->focusedElementId = 0;
+  if (uiState->pointerPressed && !uiState->anyInputBoxHovered) {
+    uiState->focusedElementId = 0;
   }
 
   Clay_RenderCommandArray renderCommands =
       Clay_EndLayout(session->lastDeltaTime);
 
-  g_uiState->renderer->begin();
+  uiState->renderer->begin();
 
   std::vector<Clay_BoundingBox> clipStack;
   [[maybe_unused]] Clay_BoundingBox *currentClip = nullptr;
@@ -459,7 +150,7 @@ void endFrame(VeraWindow *window) {
       instance.scale = elementScale;
       instance.rotation = elementRotation;
 
-      g_uiState->renderer->submit(instance);
+      uiState->renderer->submit(instance);
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
       Clay_BorderRenderData *borderData = &cmd->renderData.border;
 
@@ -506,7 +197,7 @@ void endFrame(VeraWindow *window) {
       instance.scale = elementScale;
       instance.rotation = elementRotation;
 
-      g_uiState->renderer->submit(instance);
+      uiState->renderer->submit(instance);
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE) {
       Clay_ImageRenderData *imageData = &cmd->renderData.image;
 
@@ -543,7 +234,7 @@ void endFrame(VeraWindow *window) {
 
       if (objectFit != ObjectFit::Fill && objectFit != ObjectFit::Custom) {
         VkExtent2D texExt =
-            g_uiState->context->getTextureManager()->getTextureExtent(
+            uiState->context->getTextureManager()->getTextureExtent(
                 textureIndex);
 
         if (texExt.height > 0 && transformedRect.w > 0.0f) {
@@ -602,11 +293,11 @@ void endFrame(VeraWindow *window) {
       instance.scale = elementScale;
       instance.rotation = elementRotation;
 
-      g_uiState->renderer->submit(instance);
+      uiState->renderer->submit(instance);
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
       Clay_TextRenderData *textData = &cmd->renderData.text;
 
-      if (textData->fontId >= g_uiState->fonts.size()) {
+      if (textData->fontId >= uiState->fonts.size()) {
         continue;
       }
 
@@ -625,7 +316,7 @@ void endFrame(VeraWindow *window) {
         textOffset = payload->textOffset;
       }
 
-      const avk::Font &font = *g_uiState->fonts[textData->fontId];
+      const avk::Font &font = *uiState->fonts[textData->fontId];
       float cursorX = cmd->boundingBox.x;
       float cursorY = cmd->boundingBox.y;
 
@@ -671,33 +362,34 @@ void endFrame(VeraWindow *window) {
         instance.scale = elementScale;
         instance.rotation = elementRotation;
 
-        g_uiState->renderer->submit(instance);
+        uiState->renderer->submit(instance);
 
         cursorX += glyph.advance;
       }
     }
   }
 
-  session->canvas->endFrame(*g_uiState->renderer);
+  session->canvas->endFrame(*uiState->renderer);
 
-  g_uiState->framePayloads.clear();
+  uiState->framePayloads.clear();
 
-  g_uiState->capturedChars.clear();
-  g_uiState->backspacePressed = false;
-  g_uiState->enterPressed = false;
-  g_uiState->anyInputBoxHovered = false;
-  g_uiState->deletePressed = false;
-  g_uiState->leftArrowPressed = false;
-  g_uiState->rightArrowPressed = false;
-  g_uiState->pointerPressed = false;
-  g_uiState->mouseWheelDeltaX = 0.0f;
-  g_uiState->mouseWheelDeltaY = 0.0f;
+  uiState->capturedChars.clear();
+  uiState->backspacePressed = false;
+  uiState->enterPressed = false;
+  uiState->anyInputBoxHovered = false;
+  uiState->deletePressed = false;
+  uiState->leftArrowPressed = false;
+  uiState->rightArrowPressed = false;
+  uiState->pointerPressed = false;
+  uiState->mouseWheelDeltaX = 0.0f;
+  uiState->mouseWheelDeltaY = 0.0f;
 }
 
 void resizeWindow(VeraWindow *window, uint32_t width, uint32_t height) {
-  if (!g_uiState)
+  auto uiState = getUiState();
+  if (!uiState)
     return;
-  window::WindowSession *session = g_uiState->findSession(window);
+  window::WindowSession *session = uiState->findSession(window);
   if (session) {
     float scale = window->getCurrentMonitor().dpiScale;
     int32_t intScale = static_cast<int32_t>(std::ceil(scale));
@@ -710,51 +402,19 @@ void resizeWindow(VeraWindow *window, uint32_t width, uint32_t height) {
 }
 
 uint32_t getWidth(VeraWindow *window) {
-  if (!g_uiState)
+  auto uiState = getUiState();
+  if (!uiState)
     return 0;
-  window::WindowSession *session = g_uiState->findSession(window);
+  window::WindowSession *session = uiState->findSession(window);
   return session ? session->canvas->getWidth() : 0;
 }
 
 uint32_t getHeight(VeraWindow *window) {
-  if (!g_uiState)
+  auto uiState = getUiState();
+  if (!uiState)
     return 0;
-  window::WindowSession *session = g_uiState->findSession(window);
+  window::WindowSession *session = uiState->findSession(window);
   return session ? session->canvas->getHeight() : 0;
 }
 
-uint32_t loadTexture(const std::string &path) {
-  if (!g_uiState)
-    return 0;
-  return g_uiState->context->getTextureManager()->loadTexture(getPath(path));
-}
-
-void unloadTexture(uint32_t textureIndex) {
-  if (!g_uiState)
-    return;
-  g_uiState->context->getTextureManager()->unloadTexture(textureIndex);
-}
-
-avk::Font *getFont(uint32_t fontId) {
-  if (!g_uiState || fontId >= g_uiState->fonts.size()) {
-    return nullptr;
-  }
-  return g_uiState->fonts[fontId].get();
-}
-
-bool isKeyboardCaptured() {
-  return g_uiState && g_uiState->focusedElementId != 0;
-}
-
-void clearKeyboardFocus() {
-  if (g_uiState) {
-    g_uiState->focusedElementId = 0;
-  }
-}
-
 } // namespace atomic
-
-namespace utils::layout {
-atomic::UIState *getUiState() { return atomic::g_uiState.get(); };
-uint32_t &getElementIdCounter() { return atomic::g_elementIdCounter; };
-} // namespace utils::layout

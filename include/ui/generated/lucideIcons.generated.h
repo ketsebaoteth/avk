@@ -1,3 +1,4 @@
+
 #pragma once
 
 enum class LucideIcon : char32_t {

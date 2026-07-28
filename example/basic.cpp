@@ -1,15 +1,14 @@
-#include "animation/animation.h"
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/layout.h"
 #include "core/app/App.h"
 #include "core/app/Types.h"
-#include "ui/color.h"
+#include "ui/animation/animation.h"
 #include "ui/components.h"
-#include "ui/lucide-icons.generated.h"
-#include <iostream>
+#include "ui/core/frame.h"
+#include "ui/core/resources.h"
+#include "ui/generated/lucideIcons.generated.h"
+#include "ui/utils/color.h"
 #include <print>
 #include <string>
-#include <vector>
 
 /**
  * @brief Menu item component with pure alpha fade-in/out on hover.
@@ -56,8 +55,8 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
   using namespace atomicComponents;
 
   static bool isMenuOpen = true;
-  auto width = static_cast<float>(atomic::getWidth(window));
-  auto height = static_cast<float>(atomic::getHeight(window));
+  auto width = static_cast<float>(getWidth(window));
+  auto height = static_cast<float>(getHeight(window));
 
   // Root Page Canvas
   Column(
@@ -164,8 +163,8 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
                 });
 
                 // 5. Automatic Click Outside to Dismiss
-                if (utils::layout::getUiState()->pointerPressed &&
-                    !avatar.hovered && !popup.hovered) {
+                if (getUiState()->pointerPressed && !avatar.hovered &&
+                    !popup.hovered) {
                   isMenuOpen = false;
                 }
               }

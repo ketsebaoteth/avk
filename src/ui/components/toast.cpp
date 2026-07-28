@@ -1,4 +1,3 @@
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/layout.h"
 #include "ui/components.h"
 #include <unordered_map>

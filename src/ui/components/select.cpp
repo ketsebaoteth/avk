@@ -1,10 +1,10 @@
-#include "animation/animation.h"
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
-#include "ui/color.h"
+#include "ui/animation/animation.h"
 #include "ui/components.h"
+#include "ui/core/resources.h"
+#include "ui/utils/color.h"
 #include <algorithm>
 #include <string>
 
@@ -26,7 +26,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
   static const uint32_t chevronTex = loadTexture("icons/chevron-down.png");
 
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
   bool initialIsOpen = isOpen;
 
   std::string longestOption = options[0];

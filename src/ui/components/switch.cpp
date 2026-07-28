@@ -1,8 +1,7 @@
-#include "animation/animation.h" // Access AnimateFloat and AnimateVec4
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
+#include "ui/animation/animation.h" // Access AnimateFloat and AnimateVec4
 #include "ui/components.h"
 
 namespace atomic {
@@ -12,7 +11,7 @@ namespace atomic {
  */
 Interaction Switch(Modifier &&modifier, bool &checked) {
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
 
   Clay_ElementId switchId = utils::layout::getNextId("Switch");
 

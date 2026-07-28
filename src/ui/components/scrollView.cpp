@@ -1,4 +1,3 @@
-#include "avk/atomic_ui.h"
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
@@ -14,7 +13,7 @@ namespace atomic {
 void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                 std::function<void()> contentCallback) {
   const auto &style = modifier.getStyle();
-  auto *uiState = utils::layout::getUiState();
+  auto *uiState = getUiState();
 
   Clay_ElementId scrollId = utils::layout::getNextId("ScrollView");
   Clay__OpenElementWithId(scrollId);
