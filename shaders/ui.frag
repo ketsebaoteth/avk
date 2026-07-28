@@ -54,21 +54,21 @@ float sdSegment(vec2 p, vec2 a, vec2 b) {
 float sdRegularPolygon(vec2 p, float r, int n) {
     float an = 3.14159265358979323846 / float(n);
     float he = r * cos(an);
-    
     float angle = atan(p.y, p.x) + 3.14159265358979323846;
     float sector = floor(angle / (2.0 * an));
     float a = sector * 2.0 * an + an - 3.14159265358979323846;
-    
     vec2 p_rot = vec2(cos(a) * p.x + sin(a) * p.y, -sin(a) * p.x + cos(a) * p.y);
     return p_rot.x - he;
 }
 
 void main() {
+    // 1. Scissor / Viewport Clip Test
     if (inPixelPos.x < inClipRect.x || inPixelPos.y < inClipRect.y ||
         inPixelPos.x > inClipRect.z || inPixelPos.y > inClipRect.w) {
         discard;
     }
 
+    // 2. Transform Pixel Positions
     vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
     vec2 halfSize = inRectXYWH.zw * 0.5;
 
@@ -78,6 +78,7 @@ void main() {
     mat2 invRot = mat2(c, s, -s, c);
     vec2 p = (invRot * pScreen) / max(inScale, 0.0001);
 
+    // 3. Evaluate Shape SDF Distance
     float d = 0.0;
     
     if (inShapeType == 0) { 
@@ -93,7 +94,9 @@ void main() {
         d = sdRegularPolygon(p, min(halfSize.x, halfSize.y), numSides);
     }
 
+    // 4. Fill Evaluation & Specialized Render Modes
     vec4 fillColor = inFillColorA;
+
     if (inFillType == 1) { 
         vec2 dir = inGradientEnd - inGradientStart;
         float lenSq = dot(dir, dir);
@@ -106,7 +109,8 @@ void main() {
     } else if (inFillType == 2) { 
         float dist = distance(p, vec2(0.0)) / length(halfSize);
         fillColor = mix(inFillColorA, inFillColorB, clamp(dist, 0.0, 1.0));
-} else if (inFillType == 3) { 
+    } else if (inFillType == 3) { 
+        // Text Mode
         vec2 safeUV = clamp(inUV, inUvBounds.xy, inUvBounds.zw);
         float textAlpha = texture(globalTextures[nonuniformEXT(inTextureIndex)], safeUV).r;
         outColor = vec4(inFillColorA.rgb, inFillColorA.a * textAlpha);
@@ -115,35 +119,80 @@ void main() {
         }
         return;
     } else if (inFillType == 4) { 
-      vec2 uv = mix(inUvBounds.xy, inUvBounds.zw, inUV);
+        // Image / Texture Mode
+        vec2 uv = mix(inUvBounds.xy, inUvBounds.zw, inUV);
         vec4 texColor;
 
-        // CSS "Contain": If the mapped UV is out of bounds, render transparent padding!
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
             texColor = vec4(0.0); 
         } else {
             texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], uv);
         }
+        
         vec4 finalColor = texColor * inFillColorB;
 
-        float aaWidth = (max(fwidth(d), 0.0001) + inBlur) * max(inScale, 0.0001);
-        float alpha = clamp(0.5 - d / aaWidth, 0.0, 1.0);
+        float crispness = 0.75;
+        float aaWidth = (crispness + inBlur) * max(inScale, 0.0001);
+        float alpha = 1.0 - smoothstep(-aaWidth, aaWidth, d);
 
         outColor = vec4(finalColor.rgb, finalColor.a * alpha);
         if (outColor.a < 0.001) {
             discard;
         }
-        return;  
-    }    
-    float aaWidth = (max(fwidth(d), 0.0001) + inBlur) * max(inScale, 0.0001);
-    float alpha = clamp(0.5 - d / aaWidth, 0.0, 1.0);
+        return;
+    } else if (inFillType == 5) {
+        // Outset Box-Shadow Mode
+        float spread = inFillColorB.z;
+        float expand = inFillColorB.w; // Read quad expansion
+        // Recover actual card half-size before quad expansion
+        vec2 cardHalfSize = (inRectXYWH.zw * 0.5) - vec2(expand) + vec2(spread);
+        vec4 shadowRadius = inBorderRadius + vec4(spread);
+
+        float shadowD = sdRoundedBox(p, cardHalfSize, shadowRadius);
+        float blurRadius = max(inBlur, 0.001);
+        float shadowAlpha = exp(-max(shadowD, 0.0) * max(shadowD, 0.0) / (0.5 * blurRadius * blurRadius));
+        if (shadowD <= 0.0) {
+            shadowAlpha = 1.0;
+        }
+
+        outColor = vec4(inFillColorA.rgb, inFillColorA.a * shadowAlpha);
+        if (outColor.a < 0.001) {
+            discard;
+        }
+        return;
+    } else if (inFillType == 6) {
+        // Inset Box-Shadow Mode
+        float spread = inFillColorB.z;
+        vec2 shadowHalfSize = (inRectXYWH.zw * 0.5) - vec2(spread);
+        vec4 shadowRadius = max(inBorderRadius - vec4(spread), vec4(0.0));
+
+        float shadowD = sdRoundedBox(p, shadowHalfSize, shadowRadius);
+        float blurRadius = max(inBlur, 0.001);
+
+        float shadowAlpha = 0.0;
+        if (shadowD < 0.0) {
+            float innerD = -shadowD;
+            shadowAlpha = exp(-innerD * innerD / (0.5 * blurRadius * blurRadius));
+        }
+
+        outColor = vec4(inFillColorA.rgb, inFillColorA.a * shadowAlpha);
+        if (outColor.a < 0.001) {
+            discard;
+        }
+        return;
+    }
+
+    // 5. Standard Rectangle / Shape Edge Anti-Aliasing
+    float crispness = 0.75; 
+    float aaWidth = (crispness + inBlur) * max(inScale, 0.0001);
+    float alpha = 1.0 - smoothstep(-aaWidth, aaWidth, d);
 
     if (inShapeType == 2) { 
         outColor = vec4(fillColor.rgb, fillColor.a * alpha);
     } else {
         if (inStrokeThickness > 0.0) {
             float innerD = d + inStrokeThickness;
-            float innerAlpha = clamp(0.5 - innerD / aaWidth, 0.0, 1.0);
+            float innerAlpha = 1.0 - smoothstep(-aaWidth, aaWidth, innerD);
             float strokeMask = clamp(alpha - innerAlpha, 0.0, 1.0);
 
             vec4 stroke = vec4(inStrokeColor.rgb, inStrokeColor.a * strokeMask);

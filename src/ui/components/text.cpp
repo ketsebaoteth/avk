@@ -33,14 +33,18 @@ Interaction Text(const std::string &text, uint32_t fontId,
 
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
+  float effectiveOpacity =
+      inherited.inheritedOpacity * style.opacity.value_or(1.0f);
 
   uint32_t finalFontId =
       (fontId != 0)
           ? fontId
           : (inherited.fontId != 0 ? inherited.fontId : getDefaultFontId());
   glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(0.0f));
+  bg.a *= effectiveOpacity;
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
   glm::vec4 textColor = style.textColor.value_or(inherited.textColor);
+  textColor.a *= effectiveOpacity;
   float textOffset = style.textOffset.value_or(inherited.textOffset);
 
   avk::Font *font = getFont(finalFontId);

@@ -2,23 +2,32 @@
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
 #include "ui/components.h"
+#include "ui/internal/cascadingStyle.h"
 #include <unordered_map>
 
 namespace atomic {
+
 /**
- * @brief Core universal layout primitive managing flex direction and style
- * cascading.
+ * @brief Universal layout container managing flex direction, position contexts,
+ * and style cascading.
  */
 Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   const auto &style = modifier.getStyle();
   auto *uiState = getUiState();
 
+  CascadingStyle inherited =
+      uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
+  float effectiveOpacity =
+      inherited.inheritedOpacity * style.opacity.value_or(1.0f);
+
   Clay_ElementId divId = utils::layout::getNextId("Div");
   Clay__OpenElementWithId(divId);
 
   glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(0.0f));
+  bg.a *= effectiveOpacity;
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
   glm::vec4 strokeColor = style.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
+  strokeColor.a *= effectiveOpacity;
   float strokeWidth = style.strokeThickness.value_or(0.0f);
 
   LayoutDirection dir = style.direction.value_or(LayoutDirection::Row);

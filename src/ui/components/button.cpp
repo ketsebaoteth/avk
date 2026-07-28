@@ -6,15 +6,22 @@
 namespace atomic {
 
 /**
- * @brief Clean, non-intrusive Button primitive delegating layout to Div.
+ * @brief Composable Button component fully integrated with Style Cascading.
  */
 Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
-  uint32_t btnId = utils::layout::getNextId("BtnAnim").id;
+  auto *uiState = getUiState();
+
+  CascadingStyle inherited =
+      uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
+
+  uint32_t btnId = utils::layout::getNextId("Btn").id;
 
   static std::unordered_map<uint32_t, bool> pressMap;
-  bool wasPressed = pressMap[btnId];
 
   Style style = modifier.getStyle();
+
+  bool isDisabled = style.disabled.value_or(false) || inherited.disabled;
+  bool wasPressed = !isDisabled && pressMap[btnId];
 
   glm::vec4 baseBg = style.backgroundColor.value_or(DEFAULT_BACKGROUND_NORMAL);
 
@@ -25,6 +32,7 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   Modifier btnStyle = std::move(modifier)
                           .background(baseBg)
                           .scale(animatedScale * style.scale.value_or(1.0f))
+                          .disabled(isDisabled) // Propagate disabled state down
                           .row();
 
   if (!style.padLeft.has_value())
@@ -33,6 +41,12 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
     btnStyle = std::move(btnStyle).rounded(6.0f);
 
   Interaction result = Div(std::move(btnStyle), content);
+
+  if (isDisabled) {
+    result.hovered = false;
+    result.pressed = false;
+    result.clicked = false;
+  }
 
   pressMap[btnId] = result.pressed;
 

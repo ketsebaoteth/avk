@@ -212,6 +212,7 @@ inline atomic::RenderPayload *createFramePayload(
       style.transformOrigin.value_or(glm::vec2(0.5f, 0.5f));
   payload->translate = style.translate.value_or(glm::vec2(0.0f, 0.0f));
   payload->textOffset = textOffset;
+  payload->boxShadows = style.boxShadows;
 
   // CSS Image & Background properties
   payload->textureIndex = textureIndex;
@@ -240,6 +241,11 @@ struct StyleCascadeGuard {
     if (uiState) {
       atomic::CascadingStyle current = uiState->getActiveCascadingStyle();
       bool modified = false;
+
+      if (style.opacity.has_value()) {
+        current.inheritedOpacity *= style.opacity.value();
+        modified = true;
+      }
 
       // 1. Text Color Cascading
       if (style.textColor.has_value()) {

@@ -8,19 +8,30 @@ namespace atomic {
 /**
  * @brief Renders a GPU texture image with CSS transforms and Object-Fit.
  */
+
 Interaction Image(Modifier &&modifier, uint32_t textureIndex,
                   const glm::vec4 &tint) {
   const auto &style = modifier.getStyle();
   auto *uiState = getUiState();
 
+  CascadingStyle inherited =
+      uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
+  float effectiveOpacity =
+      inherited.inheritedOpacity * style.opacity.value_or(1.0f);
+
+  // Apply inherited opacity to texture tint
+  glm::vec4 finalTint = tint;
+  finalTint.a *= effectiveOpacity;
+
   Clay_ElementId imageId = utils::layout::getNextId("Image");
   Clay__OpenElementWithId(imageId);
 
   glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(0.0f));
+  bg.a *= effectiveOpacity;
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
 
   auto *payload = utils::layout::createFramePayload(
-      style, std::nullopt, std::nullopt, 0.0f, textureIndex, tint);
+      style, std::nullopt, std::nullopt, 0.0f, textureIndex, finalTint);
 
   Clay_ElementDeclaration decl{};
   decl.layout = {

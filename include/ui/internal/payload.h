@@ -20,5 +20,6 @@ struct RenderPayload {
   glm::vec2 transformOrigin{0.5f, 0.5f};
   glm::vec2 translate{0.0f, 0.0f};
   float textOffset = 0.0f;
+  std::vector<BoxShadow> boxShadows;
 };
 } // namespace atomic

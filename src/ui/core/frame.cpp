@@ -113,6 +113,7 @@ void endFrame(VeraWindow *window) {
       float elementBlur = 0.0f;
       glm::vec2 transformOrigin(0.5f, 0.5f);
       glm::vec2 translate(0.0f, 0.0f);
+      std::vector<BoxShadow> shadows;
 
       if (cmd->userData != nullptr) {
         auto *payload = static_cast<RenderPayload *>(cmd->userData);
@@ -121,36 +122,87 @@ void endFrame(VeraWindow *window) {
         elementBlur = payload->blur;
         transformOrigin = payload->transformOrigin;
         translate = payload->translate;
+        shadows = payload->boxShadows;
+      }
+
+      auto submitShadow = [&](const BoxShadow &s) {
+        // 1. Calculate required quad expansion so the soft blur doesn't get cut
+        // off
+        float expand =
+            s.inset ? 0.0f : ((s.blur * 2.5f) + std::max(s.spread, 0.0f));
+
+        Clay_BoundingBox expandedBox = cmd->boundingBox;
+        expandedBox.x -= expand;
+        expandedBox.y -= expand;
+        expandedBox.width += expand * 2.0f;
+        expandedBox.height += expand * 2.0f;
+
+        glm::vec4 shadowRect = getPivotTransformedCoords(
+            expandedBox, elementScale, elementRotation, transformOrigin,
+            translate + s.offset);
+
+        avk::InstanceData instance{};
+        instance.rectXYWH =
+            glm::vec4(std::round(shadowRect.x), std::round(shadowRect.y),
+                      std::round(shadowRect.z), std::round(shadowRect.w));
+
+        instance.fillColorA = s.color;
+        // Pass offset, spread, AND quad expansion amount in fillColorB!
+        instance.fillColorB =
+            glm::vec4(s.offset.x, s.offset.y, s.spread, expand);
+
+        instance.borderRadius = glm::vec4(rectData->cornerRadius.topLeft,
+                                          rectData->cornerRadius.topRight,
+                                          rectData->cornerRadius.bottomLeft,
+                                          rectData->cornerRadius.bottomRight);
+
+        instance.clipRect = activeClipRect;
+        instance.shapeType = 0;
+        instance.fillType = s.inset ? 6 : 5;
+        instance.blur = s.blur;
+        instance.scale = elementScale;
+        instance.rotation = elementRotation;
+
+        uiState->renderer->submit(instance);
+      };
+
+      for (auto it = shadows.rbegin(); it != shadows.rend(); ++it) {
+        if (!it->inset) {
+          submitShadow(*it);
+        }
       }
 
       glm::vec4 transformedRect = getPivotTransformedCoords(
           cmd->boundingBox, elementScale, elementRotation, transformOrigin,
           translate);
 
-      avk::InstanceData instance{};
-      instance.rectXYWH = glm::vec4(
+      avk::InstanceData mainInstance{};
+      mainInstance.rectXYWH = glm::vec4(
           std::round(transformedRect.x), std::round(transformedRect.y),
           std::round(transformedRect.z), std::round(transformedRect.w));
 
-      instance.fillColorA = glm::vec4(rectData->backgroundColor.r / 255.0f,
-                                      rectData->backgroundColor.g / 255.0f,
-                                      rectData->backgroundColor.b / 255.0f,
-                                      rectData->backgroundColor.a / 255.0f);
+      mainInstance.fillColorA = glm::vec4(rectData->backgroundColor.r / 255.0f,
+                                          rectData->backgroundColor.g / 255.0f,
+                                          rectData->backgroundColor.b / 255.0f,
+                                          rectData->backgroundColor.a / 255.0f);
+      mainInstance.borderRadius = glm::vec4(rectData->cornerRadius.topLeft,
+                                            rectData->cornerRadius.topRight,
+                                            rectData->cornerRadius.bottomLeft,
+                                            rectData->cornerRadius.bottomRight);
+      mainInstance.clipRect = activeClipRect;
+      mainInstance.shapeType = 0;
+      mainInstance.fillType = 0;
+      mainInstance.blur = elementBlur;
+      mainInstance.scale = elementScale;
+      mainInstance.rotation = elementRotation;
 
-      instance.borderRadius = glm::vec4(rectData->cornerRadius.topLeft,
-                                        rectData->cornerRadius.topRight,
-                                        rectData->cornerRadius.bottomLeft,
-                                        rectData->cornerRadius.bottomRight);
+      uiState->renderer->submit(mainInstance);
 
-      instance.clipRect = activeClipRect;
-      instance.shapeType = 0;
-      instance.fillType = 0;
-      instance.strokeThickness = 0.0f;
-      instance.blur = elementBlur;
-      instance.scale = elementScale;
-      instance.rotation = elementRotation;
-
-      uiState->renderer->submit(instance);
+      for (const auto &s : shadows) {
+        if (s.inset) {
+          submitShadow(s);
+        }
+      }
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
       Clay_BorderRenderData *borderData = &cmd->renderData.border;
 
@@ -211,6 +263,7 @@ void endFrame(VeraWindow *window) {
 
       glm::vec4 uvBounds(0.0f, 0.0f, 1.0f, 1.0f);
       ObjectFit objectFit = ObjectFit::Fill;
+      std::vector<BoxShadow> shadows;
 
       if (cmd->userData != nullptr) {
         auto *payload = static_cast<RenderPayload *>(cmd->userData);
@@ -224,6 +277,36 @@ void endFrame(VeraWindow *window) {
 
         uvBounds = payload->uvBounds;
         objectFit = payload->objectFit;
+        shadows = payload->boxShadows;
+      }
+
+      for (auto it = shadows.rbegin(); it != shadows.rend(); ++it) {
+        if (!it->inset) {
+          glm::vec4 shadowRect = getPivotTransformedCoords(
+              cmd->boundingBox, elementScale, elementRotation, transformOrigin,
+              translate + it->offset);
+
+          avk::InstanceData shadowInstance{};
+          shadowInstance.rectXYWH =
+              glm::vec4(std::round(shadowRect.x), std::round(shadowRect.y),
+                        std::round(shadowRect.z), std::round(shadowRect.w));
+
+          shadowInstance.fillColorA = it->color;
+          shadowInstance.fillColorB =
+              glm::vec4(it->offset.x, it->offset.y, it->spread, 0.0f);
+          shadowInstance.borderRadius = glm::vec4(
+              imageData->cornerRadius.topLeft, imageData->cornerRadius.topRight,
+              imageData->cornerRadius.bottomLeft,
+              imageData->cornerRadius.bottomRight);
+          shadowInstance.clipRect = activeClipRect;
+          shadowInstance.shapeType = 0;
+          shadowInstance.fillType = 5;
+          shadowInstance.blur = it->blur;
+          shadowInstance.scale = elementScale;
+          shadowInstance.rotation = elementRotation;
+
+          uiState->renderer->submit(shadowInstance);
+        }
       }
 
       glm::vec4 transformedRect = getPivotTransformedCoords(
@@ -294,6 +377,35 @@ void endFrame(VeraWindow *window) {
       instance.rotation = elementRotation;
 
       uiState->renderer->submit(instance);
+
+      for (const auto &s : shadows) {
+        if (s.inset) {
+          glm::vec4 shadowRect = getPivotTransformedCoords(
+              cmd->boundingBox, elementScale, elementRotation, transformOrigin,
+              translate + s.offset);
+
+          avk::InstanceData shadowInstance{};
+          shadowInstance.rectXYWH =
+              glm::vec4(std::round(shadowRect.x), std::round(shadowRect.y),
+                        std::round(shadowRect.z), std::round(shadowRect.w));
+
+          shadowInstance.fillColorA = s.color;
+          shadowInstance.fillColorB =
+              glm::vec4(s.offset.x, s.offset.y, s.spread, 0.0f);
+          shadowInstance.borderRadius = glm::vec4(
+              imageData->cornerRadius.topLeft, imageData->cornerRadius.topRight,
+              imageData->cornerRadius.bottomLeft,
+              imageData->cornerRadius.bottomRight);
+          shadowInstance.clipRect = activeClipRect;
+          shadowInstance.shapeType = 0;
+          shadowInstance.fillType = 6;
+          shadowInstance.blur = s.blur;
+          shadowInstance.scale = elementScale;
+          shadowInstance.rotation = elementRotation;
+
+          uiState->renderer->submit(shadowInstance);
+        }
+      }
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
       Clay_TextRenderData *textData = &cmd->renderData.text;
 

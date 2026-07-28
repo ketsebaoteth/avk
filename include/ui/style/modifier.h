@@ -1,6 +1,7 @@
 #pragma once
 #include "glm/glm.hpp"
 #include "ui/style/style.h"
+#include <algorithm>
 
 namespace atomic {
 
@@ -10,6 +11,72 @@ namespace atomic {
 class Modifier {
 public:
   Modifier() = default;
+
+  Modifier shadow(const glm::vec4 &color, float blurRadius,
+                  float offsetX = 0.0f, float offsetY = 4.0f,
+                  float spreadRadius = 0.0f, bool inset = false) && {
+    m_style.boxShadows.push_back(
+        BoxShadow{.offset = glm::vec2(offsetX, offsetY),
+                  .blur = blurRadius,
+                  .spread = spreadRadius,
+                  .color = color,
+                  .inset = inset});
+    return std::move(*this);
+  }
+
+  /// Convenience helper for Inset Inner Shadows
+  Modifier insetShadow(const glm::vec4 &color, float blurRadius,
+                       float offsetX = 0.0f, float offsetY = 2.0f,
+                       float spreadRadius = 0.0f) && {
+    return std::move(*this).shadow(color, blurRadius, offsetX, offsetY,
+                                   spreadRadius, true);
+  }
+
+  Modifier shadow(const BoxShadow &shadow) && {
+    m_style.boxShadows.push_back(shadow);
+    return std::move(*this);
+  }
+  /**
+   * @brief Subtle modern web-style drop shadow preset controlled by intensity
+   * level (1 to 5).
+   */
+
+  Modifier subtleShadow(int level = 1) && {
+    level = std::clamp(level, 1, 5);
+
+    switch (level) {
+    case 1:
+      // Level 1: Subtle Card (4px contact + 12px ambient)
+      return std::move(*this)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.04f), 4.0f, 0.0f, 1.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.05f), 12.0f, 0.0f, 4.0f);
+
+    case 2:
+      // Level 2: Raised Card / Button (20px wide diffuse spread)
+      return std::move(*this)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.05f), 6.0f, 0.0f, 2.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 20.0f, 0.0f, 8.0f);
+
+    case 3:
+      // Level 3: Dropdown & Popover (32px wide ambient bloom)
+      return std::move(*this)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.06f), 10.0f, 0.0f, 4.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.10f), 32.0f, 0.0f, 12.0f);
+
+    case 4:
+      // Level 4: Floating Modal Window (48px deep diffuse)
+      return std::move(*this)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 12.0f, 0.0f, 6.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.14f), 48.0f, 0.0f, 20.0f);
+
+    case 5:
+    default:
+      // Level 5: High Hero Elevation (64px massive ambient shadow)
+      return std::move(*this)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.10f), 16.0f, 0.0f, 8.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.18f), 64.0f, 0.0f, 28.0f);
+    }
+  }
 
   Modifier background(const glm::vec4 &color) && {
     m_style.backgroundColor = color;

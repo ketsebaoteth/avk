@@ -113,10 +113,6 @@ bool VulkanSwapchain::build(uint32_t width, uint32_t height) {
   VkSurfaceFormatKHR selectedFormat = formats[0]; // Default fallback
 
   for (const auto &availableFormat : formats) {
-    // =========================================================================
-    // THE FIX: Change from SRGB to UNORM!
-    // This stops Vulkan from double-gamma-correcting your 2D UI.
-    // =========================================================================
     if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM &&
         availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
       selectedFormat = availableFormat;

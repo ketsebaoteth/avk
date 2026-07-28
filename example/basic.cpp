@@ -22,11 +22,11 @@ void MenuItem(LucideIcon icon, const std::string &label,
   static std::unordered_map<uint32_t, bool> hoverMap;
   bool wasHovered = hoverMap[itemId];
 
-  glm::vec4 targetBg = "#f4f4f5"_hex;
+  glm::vec4 targetBg = "#f2f2f2"_hex;
   targetBg.a = wasHovered ? 1.0f : 0.0f;
 
   glm::vec4 animatedBg =
-      AnimateVec4(itemId, targetBg, 0.12f, Curves::AppleEaseOut);
+      AnimateVec4(itemId, targetBg, 0.5f, Curves::AppleEaseOut);
 
   Interaction result = Button(
       DefaultModifier()
@@ -58,15 +58,13 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
   auto width = static_cast<float>(getWidth(window));
   auto height = static_cast<float>(getHeight(window));
 
-  // Root Page Canvas
   Column(
       DefaultModifier()
-          .background("#f4f4f5"_hex)
+          .background("#ffffff"_hex)
           .center()
           .size(width, height)
           .padding(24, 24),
       [&]() {
-        // Top Bar Container
         Div(DefaultModifier()
                 .row()
                 .center()
@@ -76,7 +74,7 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
             [&]() {
               // 1. "Share +" Button
               Button(DefaultModifier()
-                         .background("#e4e4e7"_hex)
+                         .background("#efefef"_hex)
                          .rounded(20.0f)
                          .padding(16, 8)
                          .gap(6),
@@ -87,21 +85,20 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
                                                   .color("#18181b"_hex));
                      });
 
-              // 2. Avatar Trigger Button (With Ring Border)
-              Interaction avatar =
-                  Div(DefaultModifier()
-                          .size(44.0f, 44.0f)
-                          .rounded(22.0f)
-                          .border("#f97316"_hex, 2.0f) // Gradient Orange Ring
-                          .padding(2, 2)
-                          .center(),
-                      [&]() {
-                        Image(DefaultModifier()
-                                  .size(36.0f, 36.0f)
-                                  .rounded(18.0f)
-                                  .cover(),
-                              avatarTextureId);
-                      });
+              // 2. Avatar Trigger Button
+              Interaction avatar = Div(DefaultModifier()
+                                           .size(44.0f, 44.0f)
+                                           .rounded(22.0f)
+                                           .border("#f97316"_hex, 2.0f)
+                                           .padding(2, 2)
+                                           .center(),
+                                       [&]() {
+                                         Image(DefaultModifier()
+                                                   .size(36.0f, 36.0f)
+                                                   .rounded(18.0f)
+                                                   .cover(),
+                                               avatarTextureId);
+                                       });
 
               if (avatar.clicked) {
                 isMenuOpen = !isMenuOpen;
@@ -112,17 +109,16 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
                   AnimateFloat("MenuFade", isMenuOpen ? 1.0f : 0.0f, 0.15f);
 
               if (opacity > 0.01f) {
-                glm::vec4 popupBg = Colors::white;
-                popupBg.a = opacity;
-
                 Modifier popupStyle =
                     DefaultModifier()
                         .absolute()
                         .attach(AttachPoint::TopRight, AttachPoint::BottomRight)
-                        .offset(-4.0f, 8.0f) // 8px vertical gap below avatar
+                        .offset(-4.0f, 8.0f)
                         .width(260.0f)
-                        .background(popupBg)
+                        .subtleShadow(1)
+                        .background(Colors::white)
                         .border("#e4e4e7"_hex, 1.0f)
+                        .opacity(opacity)
                         .rounded(18.0f)
                         .padding(8, 8)
                         .column()
@@ -133,14 +129,12 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
                   MenuItem(LucideIcon::User, "Profile");
                   MenuItem(LucideIcon::MessageCircle, "Community");
 
-                  // Subscription + PRO Badge
                   MenuItem(LucideIcon::CreditCard, "Subscription", [&]() {
                     Div(DefaultModifier()
                             .row()
                             .center()
                             .gap(4)
-                            .background(
-                                "#fae8ff"_hex) // Light purple/pink badge
+                            .background("#fae8ff"_hex)
                             .border("#f0abfc"_hex, 1.0f)
                             .padding(8, 3)
                             .rounded(8.0f),
@@ -171,6 +165,7 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
             });
       });
 }
+
 int main() {
   VeraApp app(VeraAppInfo{});
 

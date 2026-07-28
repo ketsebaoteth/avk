@@ -2,6 +2,7 @@
 #include "glm/glm.hpp"
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 namespace atomic {
 /**
@@ -33,6 +34,17 @@ struct Alignment {
 };
 
 /**
+ * @brief Box Shadow parameters (Offset, Blur, Spread, Color).
+ */
+struct BoxShadow {
+  glm::vec2 offset = glm::vec2(0.0f, 4.0f); // Offset (X, Y)
+  float blur = 12.0f;                       // Blur radius
+  float spread = 0.0f;                      // Spread expansion
+  glm::vec4 color = glm::vec4(0.0f, 0.0f, 0.0f, 0.15f);
+  bool inset = false; // True for inner inset shadows!
+};
+
+/**
  * @brief Position context models for layout elements.
  */
 enum class Position : uint8_t { Normal, Relative, Absolute, Fixed };
@@ -56,6 +68,7 @@ enum class AttachPoint : uint8_t {
  * @brief Comprehensive styling definition block backing fluent modifiers.
  */
 struct Style {
+  std::vector<BoxShadow> boxShadows;
   std::optional<glm::vec4> backgroundColor;
   std::optional<glm::vec4> borderRadius;
   std::optional<glm::vec4> strokeColor;
