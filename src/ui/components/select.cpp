@@ -1,6 +1,7 @@
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
+#include "glm/ext/vector_float4.hpp"
 #include "ui/animation/animation.h"
 #include "ui/components.h"
 #include "ui/core/resources.h"
@@ -14,6 +15,7 @@ namespace atomic {
  * @brief Interactive select dropdown menu with animated placement and style
  * cascading.
  */
+
 Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                    const std::vector<std::string> &options, uint32_t fontId,
                    DropdownPlacement placement) {
@@ -29,14 +31,10 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
   auto *uiState = getUiState();
   bool initialIsOpen = isOpen;
 
-  std::string longestOption = options[0];
-  for (const auto &opt : options) {
-    if (opt.length() > longestOption.length()) {
-      longestOption = opt;
-    }
-  }
-
-  Clay_ElementId selectHeaderId = utils::layout::getNextId("SelectHeader");
+  Clay_ElementId selectHeaderId =
+      style.elementLabel.has_value()
+          ? utils::layout::getNextId(style.elementLabel.value().c_str())
+          : utils::layout::getNextId("SelectHeader");
 
   bool isHovered = false;
   Clay_ElementData headerData = Clay_GetElementData(selectHeaderId);
@@ -57,7 +55,8 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
 
   glm::vec4 baseBg = style.backgroundColor.value_or(DEFAULT_BACKGROUND_NORMAL);
   glm::vec4 strokeColor = style.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
-  float strokeWidth = style.strokeThickness.value_or(DEFAULT_BORDER_WIDTH);
+  glm::vec4 strokeWidth =
+      style.strokeThickness.value_or(glm::vec4(DEFAULT_BORDER_WIDTH));
 
   glm::vec4 targetHeaderBg = baseBg;
   if (isPressed) {

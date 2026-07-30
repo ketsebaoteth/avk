@@ -59,13 +59,7 @@ inline float srgbToLinear(float c) {
 
 inline AtomicColor srgbColor(float r255, float g255, float b255,
                              float a = 1.0f) {
-  // Convert alpha to linear space so linear blending matches perceptual CSS
-  // opacity
-  float linearAlpha =
-      (a <= 0.04045f) ? (a / 12.92f) : std::pow((a + 0.055f) / 1.055f, 2.4f);
-
-  return AtomicColor(srgbToLinear(r255 / 255.0f), srgbToLinear(g255 / 255.0f),
-                     srgbToLinear(b255 / 255.0f), linearAlpha);
+  return AtomicColor(r255 / 255.0f, g255 / 255.0f, b255 / 255.0f, a);
 }
 } // namespace detail_color
 

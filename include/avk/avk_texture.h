@@ -2,6 +2,7 @@
 
 #include "avk_allocator.h"
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 #include <volk.h>
@@ -46,6 +47,12 @@ public:
    * @return The unique boundless texture index, or 0 (fallback) on failure.
    */
   uint32_t loadTexture(const std::string &path);
+
+  uint32_t loadRawPixels(const uint8_t *pixels, uint32_t width,
+                         uint32_t height);
+
+  // loads it from memory instead
+  uint32_t loadTextureFromMemory(std::span<const uint8_t> bytes);
 
   /**
    * @brief Registers an externally created Vulkan image and view into the

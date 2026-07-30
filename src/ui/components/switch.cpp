@@ -9,11 +9,15 @@ namespace atomic {
 /**
  * @brief Animated sliding toggle switch component built on top of Div.
  */
+
 Interaction Switch(Modifier &&modifier, bool &checked) {
   const auto &style = modifier.getStyle();
   auto *uiState = getUiState();
 
-  Clay_ElementId switchId = utils::layout::getNextId("Switch");
+  Clay_ElementId switchId =
+      style.elementLabel.has_value()
+          ? utils::layout::getNextId(style.elementLabel.value().c_str())
+          : utils::layout::getNextId("Switch");
 
   float width = style.width.value_or(48.0f);
   float height = style.height.value_or(26.0f);

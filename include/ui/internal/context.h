@@ -1,4 +1,3 @@
-
 #pragma once
 
 #include "avk/avk_core.h"
@@ -6,16 +5,44 @@
 #include "avk/avk_renderer.h"
 #include "avk/window/session.h"
 
+#include "core/app/App.h"
 #include "ui/internal/cascadingStyle.h"
 #include "ui/internal/payload.h"
 #include "ui/state/inputState.h"
 #include "ui/state/scrollViewState.h"
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <glm/glm.hpp>
 #include <memory>
+#include <optional>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
+class VeraWindow;
+
 namespace atomic {
+
+/**
+ * @brief Complete runtime lifecycle and focus state for a single UI element.
+ */
+struct ElementLifecycleState {
+  bool isMounted = false;
+  float mountAge = 0.0f;
+
+  bool isHovered = false;
+  bool isPressed = false;
+
+  bool isFocused = false;
+  bool focusGained = false;
+  bool focusLost = false;
+
+  bool isUnmounting = false;
+  float unmountProgress = 0.0f;
+};
+
 /**
  * @brief Master runtime UI engine context state.
  */
@@ -29,6 +56,10 @@ struct UIState {
   std::vector<CascadingStyle> cascadingStyleStack;
   std::unordered_map<uint32_t, CascadingStyle> computedStyleMap;
 
+  // Lifecycle & interaction state stores (previous frame vs current frame)
+  std::unordered_map<uint32_t, ElementLifecycleState> previousLifecycleMap;
+  std::unordered_map<uint32_t, ElementLifecycleState> currentLifecycleMap;
+
   glm::vec2 pointerPos = glm::vec2(0.0f);
   bool pointerPressed = false;
   bool pointerDown = false;
@@ -41,6 +72,8 @@ struct UIState {
   std::unordered_map<std::string, uint32_t> iconMap;
 
   uint32_t focusedElementId = 0;
+  uint32_t previousFocusedElementId = 0;
+
   std::vector<uint32_t> capturedChars;
   bool backspacePressed = false;
   bool enterPressed = false;
@@ -74,8 +107,9 @@ struct UIState {
 };
 
 /** @brief Initializes the atomicUI engine context and renderer. */
-void initialize(std::optional<VeraNativeHandle> nativeDisplay,
-                bool enableValidation = false);
+void initialize(VeraApp &veraAppPtr,
+                std::optional<VeraNativeHandle> nativeDisplay,
+                bool enableValidation);
 
 /** @brief Shuts down the engine and releases all Vulkan resources. */
 void shutdown();
@@ -88,5 +122,76 @@ void unregisterWindow(VeraWindow *window);
 
 void resetGlobalIdCounter();
 UIState *getUiState();
+VeraApp *getVeraApp();
 uint32_t &getElementIdCounter();
+
+/** @brief Returns true if an element was rendered in previous frame. */
+inline bool isMounted(uint32_t elementId) {
+  auto *uiState = getUiState();
+  if (uiState) {
+    auto it = uiState->previousLifecycleMap.find(elementId);
+    return (it != uiState->previousLifecycleMap.end()) && it->second.isMounted;
+  }
+  return false;
+}
+inline bool isMounted(const std::string &label) {
+  return isMounted(hashLabel(label));
+}
+
+/** @brief Returns true if an element was hovered in previous frame. */
+inline bool isHovered(uint32_t elementId) {
+  auto *uiState = getUiState();
+  if (uiState) {
+    auto it = uiState->previousLifecycleMap.find(elementId);
+    return (it != uiState->previousLifecycleMap.end()) && it->second.isHovered;
+  }
+  return false;
+}
+inline bool isHovered(const std::string &label) {
+  return isHovered(hashLabel(label));
+}
+
+/** @brief Returns true if an element was pressed in previous frame. */
+inline bool isPressed(uint32_t elementId) {
+  auto *uiState = getUiState();
+  if (uiState) {
+    auto it = uiState->previousLifecycleMap.find(elementId);
+    return (it != uiState->previousLifecycleMap.end()) && it->second.isPressed;
+  }
+  return false;
+}
+inline bool isPressed(const std::string &label) {
+  return isPressed(hashLabel(label));
+}
+
+/** @brief Returns true if an element currently holds keyboard focus. */
+inline bool isFocused(uint32_t elementId) {
+  auto *uiState = getUiState();
+  return uiState && (uiState->focusedElementId == elementId);
+}
+inline bool isFocused(const std::string &label) {
+  return isFocused(hashLabel(label));
+}
+
+/** @brief Returns true for exactly 1 frame when an element gains focus. */
+inline bool focusGained(uint32_t elementId) {
+  auto *uiState = getUiState();
+  return uiState && (uiState->focusedElementId == elementId) &&
+         (uiState->previousFocusedElementId != elementId);
+}
+inline bool focusGained(const std::string &label) {
+  return focusGained(hashLabel(label));
+}
+
+/** @brief Returns true for exactly 1 frame when an element loses focus (blur).
+ */
+inline bool focusLost(uint32_t elementId) {
+  auto *uiState = getUiState();
+  return uiState && (uiState->previousFocusedElementId == elementId) &&
+         (uiState->focusedElementId != elementId);
+}
+inline bool focusLost(const std::string &label) {
+  return focusLost(hashLabel(label));
+}
+
 } // namespace atomic

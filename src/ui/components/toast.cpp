@@ -1,24 +1,55 @@
 #include "avk/utils/ui/layout.h"
+#include "ui/animation/animation.h"
 #include "ui/components.h"
+#include <chrono>
+#include <functional>
 #include <unordered_map>
 
 namespace atomicComponents {
 
 /**
- * @brief Floating animated toast component anchored to a trigger callback.
+ * @brief Floating animated toast component with configurable delay, direction,
+ * and a polished light theme style.
  */
 void Toast(std::function<void()> triggerCallback,
            std::function<void()> toastContentCallback,
-           atomic::Modifier &&modifier) {
+           atomic::Modifier &&modifier, ToastConfig config) {
 
   Clay_ElementId triggerId = utils::layout::getNextId("ToastTrigger");
   uint32_t toastAnimId = triggerId.id;
 
   static std::unordered_map<uint32_t, bool> hoverStates;
-  bool isHovered = hoverStates[toastAnimId];
+  static std::unordered_map<uint32_t, std::chrono::steady_clock::time_point>
+      hoverStartTimes;
 
+  bool isHovered = hoverStates[toastAnimId];
+  auto now = std::chrono::steady_clock::now();
+
+  if (isHovered) {
+    if (hoverStartTimes.find(toastAnimId) == hoverStartTimes.end()) {
+      hoverStartTimes[toastAnimId] = now;
+    }
+  } else {
+    hoverStartTimes.erase(toastAnimId);
+  }
+
+  bool showToast = false;
+  if (isHovered && config.delay > 0.0f) {
+    std::chrono::duration<float> elapsed = now - hoverStartTimes[toastAnimId];
+    if (elapsed.count() >= config.delay) {
+      showToast = true;
+    }
+  } else {
+    showToast = isHovered;
+  }
+
+  float targetOpacity = showToast ? 1.0f : 0.0f;
   float opacity =
-      atomic::AnimateFloat(toastAnimId, isHovered ? 1.0f : 0.0f, 0.15f);
+      atomic::AnimateFloat(toastAnimId, targetOpacity, config.duration,
+                           atomic::Curves::AppleEaseOut);
+  float scale =
+      atomic::AnimateFloat(toastAnimId + 0x1000, showToast ? 1.0f : 0.95f,
+                           config.duration, atomic::Curves::AppleEaseOut);
 
   atomic::Interaction trigger =
       atomic::Row(atomic::Modifier().relative(), [&]() {
@@ -26,14 +57,50 @@ void Toast(std::function<void()> triggerCallback,
           triggerCallback();
 
         if (opacity > 0.01f) {
-          atomic::Modifier toastStyle =
-              std::move(modifier)
-                  .absolute()
-                  .attach(atomic::AttachPoint::BottomCenter,
-                          atomic::AttachPoint::TopCenter)
-                  .offset(0.0f, -5.0f)
-                  .padding(12, 5)
-                  .background(glm::vec4(0.12f, 0.12f, 0.12f, 0.95f * opacity));
+          atomic::AttachPoint attachFrom = atomic::AttachPoint::BottomCenter;
+          atomic::AttachPoint attachTo = atomic::AttachPoint::TopCenter;
+          float offsetX = 0.0f;
+          float offsetY = 0.0f;
+          float slideOffset = (1.0f - opacity) * config.distance;
+
+          switch (config.direction) {
+          case ToastDirection::Top:
+            attachFrom = atomic::AttachPoint::BottomCenter;
+            attachTo = atomic::AttachPoint::TopCenter;
+            offsetY = -6.0f - slideOffset;
+            break;
+          case ToastDirection::Bottom:
+            attachFrom = atomic::AttachPoint::TopCenter;
+            attachTo = atomic::AttachPoint::BottomCenter;
+            offsetY = 6.0f + slideOffset;
+            break;
+          case ToastDirection::Left:
+            attachFrom = atomic::AttachPoint::CenterRight;
+            attachTo = atomic::AttachPoint::CenterLeft;
+            offsetX = -6.0f - slideOffset;
+            break;
+          case ToastDirection::Right:
+            attachFrom = atomic::AttachPoint::CenterLeft;
+            attachTo = atomic::AttachPoint::CenterRight;
+            offsetX = 6.0f + slideOffset;
+            break;
+          }
+
+          // Light theme styling matching the macOS/editor aesthetic
+          glm::vec4 lightBg = {0.98f, 0.98f, 0.99f, 0.95f * opacity};
+          glm::vec4 lightBorder = {0.85f, 0.85f, 0.88f, 1.0f * opacity};
+
+          atomic::Modifier toastStyle = std::move(modifier)
+                                            .absolute()
+                                            .attach(attachFrom, attachTo)
+                                            .offset(offsetX, offsetY)
+                                            .padding(12, 16)
+                                            .rounded(8.0f)
+                                            .color(Colors::gray[500])
+                                            .fontSize(10)
+                                            .scale(scale)
+                                            .background(lightBg)
+                                            .border(lightBorder, 1.0f);
 
           atomic::Row(std::move(toastStyle), [&]() {
             if (toastContentCallback)

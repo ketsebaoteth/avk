@@ -14,7 +14,10 @@ Interaction Checkbox(Modifier &&modifier, bool &checked) {
   const auto &style = modifier.getStyle();
   auto *uiState = getUiState();
 
-  Clay_ElementId checkboxId = utils::layout::getNextId("Checkbox");
+  Clay_ElementId checkboxId =
+      style.elementLabel.has_value()
+          ? utils::layout::getNextId(style.elementLabel.value().c_str())
+          : utils::layout::getNextId("Checkbox");
 
   float baseSize = style.width.value_or(20.0f);
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(4.0f));

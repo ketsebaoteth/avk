@@ -11,26 +11,40 @@ inline void handleClayError(Clay_ErrorData error) {
   std::println("[Clay Layout]: {}", error.errorText.chars);
 }
 
+/**
+ * @brief Generates an element ID. Anonymous primitives receive sequential frame
+ * counters, while custom string labels automatically resolve to 100% stable
+ * static IDs.
+ */
 inline Clay_ElementId getNextId(const char *label) {
-  char buffer[64];
+  if (std::strcmp(label, "Div") == 0 || std::strcmp(label, "Text") == 0 ||
+      std::strcmp(label, "Image") == 0 || std::strcmp(label, "BtnAnim") == 0 ||
+      std::strcmp(label, "Checkbox") == 0 ||
+      std::strcmp(label, "Switch") == 0 ||
+      std::strcmp(label, "ScrollView") == 0 ||
+      std::strcmp(label, "ToastTrigger") == 0) {
 
-  // Fetch the centralized global reference and post-increment it
-  uint32_t currentId = atomic::getElementIdCounter()++;
-  std::snprintf(buffer, sizeof(buffer), "%s_%u", label, currentId);
+    char buffer[64];
+    uint32_t currentId = atomic::getElementIdCounter()++;
+    std::snprintf(buffer, sizeof(buffer), "%s_%u", label, currentId);
+
+    return Clay_GetElementId(
+        Clay_String{.isStaticallyAllocated = false,
+                    .length = static_cast<int32_t>(std::strlen(buffer)),
+                    .chars = buffer});
+  }
 
   return Clay_GetElementId(
       Clay_String{.isStaticallyAllocated = false,
-                  .length = static_cast<int32_t>(std::strlen(buffer)),
-                  .chars = buffer});
+                  .length = static_cast<int32_t>(std::strlen(label)),
+                  .chars = label});
 }
 
-// In utils::layout (wherever getNextId lives)
 inline Clay_ElementId getNextId(const char *name, uint32_t seed) {
   Clay_String str{false, static_cast<int32_t>(strlen(name)), name};
   return Clay__HashString(str, seed);
 }
 
-// C++ RAII Scope Guard: Auto-manages active positioning coordinate contexts
 struct PositioningContextGuard {
   bool active = false;
 
@@ -57,7 +71,6 @@ struct PositioningContextGuard {
     }
   }
 
-  // Delete copy constructors
   PositioningContextGuard(const PositioningContextGuard &) = delete;
   PositioningContextGuard &operator=(const PositioningContextGuard &) = delete;
   PositioningContextGuard(PositioningContextGuard &&other) noexcept
@@ -89,18 +102,26 @@ static Clay_FloatingAttachPointType mapAttachPoint(atomic::AttachPoint pt) {
   }
 }
 
-// 2-Argument API: Cleans up component layout setups!
 inline void applyStyleToLayout(Clay_ElementDeclaration &decl,
                                const atomic::Style &style) {
-  // 1. Apply Sizing overrides if present
   if (style.width.has_value()) {
-    decl.layout.sizing.width = CLAY_SIZING_FIXED(style.width.value());
-  }
-  if (style.height.has_value()) {
-    decl.layout.sizing.height = CLAY_SIZING_FIXED(style.height.value());
+    float w = style.width.value();
+    if (w == 0.0f) {
+      decl.layout.sizing.width = CLAY_SIZING_GROW();
+    } else {
+      decl.layout.sizing.width = CLAY_SIZING_FIXED(w);
+    }
   }
 
-  // 2. Apply Padding overrides if present
+  if (style.height.has_value()) {
+    float h = style.height.value();
+    if (h == 0.0f) {
+      decl.layout.sizing.height = CLAY_SIZING_GROW();
+    } else {
+      decl.layout.sizing.height = CLAY_SIZING_FIXED(h);
+    }
+  }
+
   if (style.padLeft.has_value())
     decl.layout.padding.left = style.padLeft.value();
   if (style.padRight.has_value())
@@ -110,12 +131,10 @@ inline void applyStyleToLayout(Clay_ElementDeclaration &decl,
   if (style.padBottom.has_value())
     decl.layout.padding.bottom = style.padBottom.value();
 
-  // 3. Child gap
   if (style.childGap.has_value()) {
     decl.layout.childGap = style.childGap.value();
   }
 
-  // 4. Resolve CSS & Floating positioning
   atomic::Position pos = style.position.value_or(atomic::Position::Normal);
 
   if (pos == atomic::Position::Absolute || pos == atomic::Position::Fixed) {
@@ -125,7 +144,6 @@ inline void applyStyleToLayout(Clay_ElementDeclaration &decl,
     Clay_FloatingAttachPointType mainAttach = CLAY_ATTACH_POINT_LEFT_TOP;
     Clay_FloatingAttachPointType parentAttach = CLAY_ATTACH_POINT_LEFT_TOP;
 
-    // 1. Resolve Attach Points
     if (style.elementAttach.has_value() && style.parentAttach.has_value()) {
       mainAttach = mapAttachPoint(style.elementAttach.value());
       parentAttach = mapAttachPoint(style.parentAttach.value());
@@ -152,9 +170,6 @@ inline void applyStyleToLayout(Clay_ElementDeclaration &decl,
       }
     }
 
-    // =========================================================================
-    // FIX: Accumulate BOTH style.offset AND style.translate here!
-    // =========================================================================
     if (style.offset.has_value()) {
       offsetX += style.offset->x;
       offsetY += style.offset->y;
@@ -169,42 +184,35 @@ inline void applyStyleToLayout(Clay_ElementDeclaration &decl,
         style.pointerEvents.value_or(true)
             ? CLAY_POINTER_CAPTURE_MODE_CAPTURE
             : CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
-    decl.floating.attachPoints = {mainAttach,
-                                  parentAttach}; // --- PARENT ID RESOLUTION ---
+    decl.floating.attachPoints = {mainAttach, parentAttach};
+
     if (pos == atomic::Position::Absolute) {
-      // Priority 1: Explicit parentId set on Modifier (e.g.
-      // .parentId(targetId))
       if (style.parentId.has_value()) {
         decl.floating.parentId = style.parentId.value();
         decl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
       } else {
-        // Priority 2: Use nearest Relative Parent from the context stack
         auto *uiState = atomic::getUiState();
         if (uiState && !uiState->positioningContextStack.empty()) {
           decl.floating.parentId = uiState->positioningContextStack.back();
           decl.floating.attachTo = CLAY_ATTACH_TO_ELEMENT_WITH_ID;
         } else {
-          // Priority 3: Fall back to Viewport Window Root
           decl.floating.parentId = 0;
           decl.floating.attachTo = CLAY_ATTACH_TO_ROOT;
         }
       }
     } else {
-      // Fixed Position: Anchors strictly relative to viewport root window
       decl.floating.parentId = 0;
       decl.floating.attachTo = CLAY_ATTACH_TO_ROOT;
     }
   }
 }
 
-// Memory-safe, self-cleaning payload allocator
 inline atomic::RenderPayload *createFramePayload(
     const atomic::Style &style, std::optional<float> scale = std::nullopt,
     std::optional<float> rotation = std::nullopt, float textOffset = 0.0f,
     uint32_t textureIndex = 0, const glm::vec4 &tintColor = glm::vec4(1.0f)) {
   auto payload = std::make_unique<atomic::RenderPayload>();
 
-  // Transform properties
   payload->scale = scale.value_or(style.scale.value_or(1.0f));
   payload->rotation = rotation.value_or(style.rotation.value_or(0.0f));
   payload->blur = style.blur.value_or(0.0f);
@@ -213,13 +221,18 @@ inline atomic::RenderPayload *createFramePayload(
   payload->translate = style.translate.value_or(glm::vec2(0.0f, 0.0f));
   payload->textOffset = textOffset;
   payload->boxShadows = style.boxShadows;
+  payload->gradient = style.gradient; // <--- Map Gradient Payload!
 
-  // CSS Image & Background properties
   payload->textureIndex = textureIndex;
   payload->tintColor = tintColor;
   payload->uvBounds =
       style.uvBounds.value_or(glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
   payload->objectFit = style.objectFit.value_or(atomic::ObjectFit::Fill);
+
+  // Map Typography
+  payload->fontSize = style.fontSize.value_or(16.0f);
+  payload->letterSpacing = style.letterSpacing.value_or(0.0f);
+  payload->fontWeight = style.fontWeight.value_or(400.0f);
 
   auto *ptr = payload.get();
   auto *uiState = atomic::getUiState();
@@ -229,10 +242,6 @@ inline atomic::RenderPayload *createFramePayload(
   return ptr;
 }
 
-// ============================================================================
-// RAII Style Cascade Guard
-// Automatically manages style inheritance lifecycle for containers
-// ============================================================================
 struct StyleCascadeGuard {
   bool active = false;
 
@@ -246,28 +255,36 @@ struct StyleCascadeGuard {
         current.inheritedOpacity *= style.opacity.value();
         modified = true;
       }
-
-      // 1. Text Color Cascading
+      if (style.fontSize.has_value()) {
+        current.fontSize = style.fontSize.value();
+        modified = true;
+      }
+      if (style.letterSpacing.has_value()) {
+        current.letterSpacing = style.letterSpacing.value();
+        modified = true;
+      }
+      if (style.fontWeight.has_value()) {
+        current.fontWeight = style.fontWeight.value();
+        modified = true;
+      }
+      if (style.lineHeight.has_value()) {
+        current.lineHeight = style.lineHeight.value();
+        modified = true;
+      }
       if (style.textColor.has_value()) {
         current.textColor = style.textColor.value();
         modified = true;
       }
-
-      // 2. Text Offset Cascading
       if (style.textOffset.has_value()) {
         current.textOffset = style.textOffset.value();
         modified = true;
       }
-
-      // 3. Pointer Events Cascading (Children inherit false if parent disabled
-      // it)
       if (style.pointerEvents.has_value()) {
         current.pointerEvents =
             current.pointerEvents && style.pointerEvents.value();
         modified = true;
       }
 
-      // 4. Push updated cascading scope to engine stack
       if (modified) {
         uiState->cascadingStyleStack.push_back(current);
         active = true;
@@ -303,31 +320,22 @@ inline atomic::ComputedLayout getComputedLayout(Clay_ElementId id) {
   return atomic::ComputedLayout{};
 }
 
-/// Get computed layout by string label (e.g. "MainSidebar")
 inline atomic::ComputedLayout getComputedLayout(const char *label) {
   return getComputedLayout(getNextId(label));
 }
 
-/// Get computed layout by raw numeric ID
 inline atomic::ComputedLayout getComputedLayout(uint32_t elementId) {
   return getComputedLayout(Clay_ElementId{.id = elementId});
 }
 
-/// Helper: Get computed size (Width, Height) in pixels
 inline glm::vec2 getComputedSize(const char *label) {
   return getComputedLayout(label).size;
 }
 
-/// Helper: Get computed screen position (X, Y) in pixels
 inline glm::vec2 getComputedPosition(const char *label) {
   return getComputedLayout(label).position;
 }
 
-// ============================================================================
-// COMPUTED STYLE API (CSS getComputedStyle)
-// ============================================================================
-
-/// Returns the active inherited style in the current layout scope
 inline atomic::CascadingStyle getCurrentStyle() {
   auto *uiState = atomic::getUiState();
   if (uiState) {
@@ -336,7 +344,6 @@ inline atomic::CascadingStyle getCurrentStyle() {
   return atomic::CascadingStyle{};
 }
 
-/// Returns the final resolved style of any specific element ID
 inline atomic::CascadingStyle getComputedStyle(uint32_t elementId) {
   auto *uiState = atomic::getUiState();
   if (uiState) {
@@ -348,8 +355,158 @@ inline atomic::CascadingStyle getComputedStyle(uint32_t elementId) {
   return atomic::CascadingStyle{};
 }
 
-/// Returns the final resolved style of an element by string label
 inline atomic::CascadingStyle getComputedStyle(const char *label) {
   return getComputedStyle(getNextId(label).id);
 }
+
+inline atomic::Style resolveTransitions(uint32_t elementId,
+                                        const atomic::Style &targetStyle) {
+  if (!targetStyle.transitionSpec.has_value() ||
+      !targetStyle.transitionSpec->enabled) {
+    return targetStyle;
+  }
+
+  const auto &spec = targetStyle.transitionSpec.value();
+  atomic::Style resolved = targetStyle;
+
+  if (targetStyle.backgroundColor.has_value()) {
+    resolved.backgroundColor = atomic::AnimateVec4(
+        elementId + 0x10000, targetStyle.backgroundColor.value(), spec.duration,
+        spec.curve);
+  }
+  if (targetStyle.textColor.has_value()) {
+    resolved.textColor =
+        atomic::AnimateVec4(elementId + 0x20000, targetStyle.textColor.value(),
+                            spec.duration, spec.curve);
+  }
+  if (targetStyle.strokeColor.has_value()) {
+    resolved.strokeColor = atomic::AnimateVec4(elementId + 0x30000,
+                                               targetStyle.strokeColor.value(),
+                                               spec.duration, spec.curve);
+  }
+  if (targetStyle.scale.has_value()) {
+    resolved.scale =
+        atomic::AnimateFloat(elementId + 0x40000, targetStyle.scale.value(),
+                             spec.duration, spec.curve);
+  }
+  if (targetStyle.opacity.has_value()) {
+    resolved.opacity =
+        atomic::AnimateFloat(elementId + 0x50000, targetStyle.opacity.value(),
+                             spec.duration, spec.curve);
+  }
+  if (targetStyle.rotation.has_value()) {
+    resolved.rotation =
+        atomic::AnimateFloat(elementId + 0x60000, targetStyle.rotation.value(),
+                             spec.duration, spec.curve);
+  }
+  if (targetStyle.strokeThickness.has_value()) {
+    resolved.strokeThickness = atomic::AnimateVec4(
+        elementId + 0x70000, targetStyle.strokeThickness.value(), spec.duration,
+        spec.curve);
+  }
+  if (targetStyle.textOffset.has_value()) {
+    resolved.textOffset = atomic::AnimateFloat(elementId + 0x80000,
+                                               targetStyle.textOffset.value(),
+                                               spec.duration, spec.curve);
+  }
+  if (targetStyle.blur.has_value()) {
+    resolved.blur =
+        atomic::AnimateFloat(elementId + 0x90000, targetStyle.blur.value(),
+                             spec.duration, spec.curve);
+  }
+  if (targetStyle.translate.has_value()) {
+    float tx =
+        atomic::AnimateFloat(elementId + 0xA0000, targetStyle.translate->x,
+                             spec.duration, spec.curve);
+    float ty =
+        atomic::AnimateFloat(elementId + 0xB0000, targetStyle.translate->y,
+                             spec.duration, spec.curve);
+    resolved.translate = glm::vec2(tx, ty);
+  }
+  if (targetStyle.offset.has_value()) {
+    float ox = atomic::AnimateFloat(elementId + 0xC0000, targetStyle.offset->x,
+                                    spec.duration, spec.curve);
+    float oy = atomic::AnimateFloat(elementId + 0xD0000, targetStyle.offset->y,
+                                    spec.duration, spec.curve);
+    resolved.offset = glm::vec2(ox, oy);
+  }
+  if (targetStyle.width.has_value()) {
+    resolved.width =
+        atomic::AnimateFloat(elementId + 0xE0000, targetStyle.width.value(),
+                             spec.duration, spec.curve);
+  }
+  if (targetStyle.height.has_value()) {
+    resolved.height =
+        atomic::AnimateFloat(elementId + 0xF0000, targetStyle.height.value(),
+                             spec.duration, spec.curve);
+  }
+  if (targetStyle.fontSize.has_value()) {
+    resolved.fontSize =
+        atomic::AnimateFloat(elementId + 0x100000, targetStyle.fontSize.value(),
+                             spec.duration, spec.curve);
+  }
+  if (targetStyle.letterSpacing.has_value()) {
+    resolved.letterSpacing = atomic::AnimateFloat(
+        elementId + 0x110000, targetStyle.letterSpacing.value(), spec.duration,
+        spec.curve);
+  }
+  if (targetStyle.fontWeight.has_value()) {
+    resolved.fontWeight = atomic::AnimateFloat(elementId + 0x120000,
+                                               targetStyle.fontWeight.value(),
+                                               spec.duration, spec.curve);
+  }
+  if (targetStyle.lineHeight.has_value()) {
+    resolved.lineHeight = atomic::AnimateFloat(elementId + 0x130000,
+                                               targetStyle.lineHeight.value(),
+                                               spec.duration, spec.curve);
+  }
+
+  if (targetStyle.padLeft.has_value()) {
+    resolved.padLeft = atomic::AnimateFloat(
+        elementId + 0x140000, static_cast<float>(targetStyle.padLeft.value()),
+        spec.duration, spec.curve);
+  }
+  if (targetStyle.padRight.has_value()) {
+    resolved.padRight = atomic::AnimateFloat(
+        elementId + 0x150000, static_cast<float>(targetStyle.padRight.value()),
+        spec.duration, spec.curve);
+  }
+  if (targetStyle.padTop.has_value()) {
+    resolved.padTop = atomic::AnimateFloat(
+        elementId + 0x160000, static_cast<float>(targetStyle.padTop.value()),
+        spec.duration, spec.curve);
+  }
+  if (targetStyle.padBottom.has_value()) {
+    resolved.padBottom = atomic::AnimateFloat(
+        elementId + 0x170000, static_cast<float>(targetStyle.padBottom.value()),
+        spec.duration, spec.curve);
+  }
+
+  if (!targetStyle.boxShadows.empty()) {
+    std::vector<atomic::BoxShadow> animatedShadows;
+    for (size_t i = 0; i < targetStyle.boxShadows.size(); ++i) {
+      atomic::BoxShadow s = targetStyle.boxShadows[i];
+
+      uint32_t shadowId =
+          elementId + 0x200000 + (static_cast<uint32_t>(i) * 0x1000);
+
+      s.color =
+          atomic::AnimateVec4(shadowId + 1, s.color, spec.duration, spec.curve);
+      s.offset.x = atomic::AnimateFloat(shadowId + 2, s.offset.x, spec.duration,
+                                        spec.curve);
+      s.offset.y = atomic::AnimateFloat(shadowId + 3, s.offset.y, spec.duration,
+                                        spec.curve);
+      s.blur =
+          atomic::AnimateFloat(shadowId + 4, s.blur, spec.duration, spec.curve);
+      s.spread = atomic::AnimateFloat(shadowId + 5, s.spread, spec.duration,
+                                      spec.curve);
+
+      animatedShadows.push_back(s);
+    }
+    resolved.boxShadows = animatedShadows;
+  }
+
+  return resolved;
+}
+
 } // namespace utils::layout

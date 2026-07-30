@@ -1,44 +1,64 @@
 #include "avk/utils/ui/layout.h"
 #include "ui/animation/animation.h"
 #include "ui/components.h"
-#include <unordered_map>
+#include "ui/utils/color.h"
+#include <algorithm>
 
 namespace atomic {
 
-/**
- * @brief Composable Button component fully integrated with Style Cascading.
- */
+// In src/ui/components/button.cpp:
+
 Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   auto *uiState = getUiState();
-
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
 
-  uint32_t btnId = utils::layout::getNextId("Btn").id;
+  const auto &rawStyle = modifier.getStyle();
 
-  static std::unordered_map<uint32_t, bool> pressMap;
+  std::string labelId = rawStyle.elementLabel.value_or("BtnAnim");
+  uint32_t btnId = hashLabel(labelId);
 
-  Style style = modifier.getStyle();
+  bool isDisabled = rawStyle.disabled.value_or(false) || inherited.disabled;
+  bool wasHovered = !isDisabled && isHovered(btnId);
+  bool wasPressed = !isDisabled && isPressed(btnId);
 
-  bool isDisabled = style.disabled.value_or(false) || inherited.disabled;
-  bool wasPressed = !isDisabled && pressMap[btnId];
+  // shadcn default colors: Dark Zinc (#18181b) -> Hover (#27272a) -> Active
+  // (#09090b)
+  glm::vec4 baseBg = rawStyle.backgroundColor.value_or("#ffffff"_hex);
+  glm::vec4 hoverBg = glm::vec4(std::min(baseBg.r * 0.93f, 1.0f),
+                                std::min(baseBg.g * 0.93f, 1.0f),
+                                std::min(baseBg.b * 0.93f, 1.0f), baseBg.a);
+  glm::vec4 activeBg =
+      glm::vec4(baseBg.r * 0.86f, baseBg.g * 0.86f, baseBg.b * 0.86f, baseBg.a);
 
-  glm::vec4 baseBg = style.backgroundColor.value_or(DEFAULT_BACKGROUND_NORMAL);
-
-  float targetScale = wasPressed ? 0.98f : 1.0f;
-  float animatedScale =
-      AnimateFloat(btnId, targetScale, 0.10f, Curves::AppleEaseOut);
+  glm::vec4 targetBg = wasPressed ? activeBg : (wasHovered ? hoverBg : baseBg);
 
   Modifier btnStyle = std::move(modifier)
-                          .background(baseBg)
-                          .scale(animatedScale * style.scale.value_or(1.0f))
-                          .disabled(isDisabled) // Propagate disabled state down
-                          .row();
+                          .id(labelId)
+                          .background(targetBg)
+                          .scale(rawStyle.scale.value_or(1.0f))
+                          .disabled(isDisabled)
+                          .row()
+                          .center();
 
-  if (!style.padLeft.has_value())
+  if (!rawStyle.fontSize.has_value())
+    btnStyle = std::move(btnStyle).fontSize(14.0f);
+  if (!rawStyle.fontWeight.has_value())
+    btnStyle = std::move(btnStyle).fontWeight(500.0f);
+  if (!rawStyle.padLeft.has_value())
     btnStyle = std::move(btnStyle).padding(16, 8);
-  if (!style.borderRadius.has_value())
-    btnStyle = std::move(btnStyle).rounded(6.0f);
+  if (!rawStyle.strokeColor.has_value())
+    btnStyle = std::move(btnStyle).border(Colors::transparent, 1);
+  if (!rawStyle.strokeThickness.has_value())
+    btnStyle = std::move(btnStyle).border(Colors::gray[100], 1);
+  if (!rawStyle.borderRadius.has_value())
+    btnStyle = std::move(btnStyle).rounded(10.0f);
+  if (!rawStyle.textColor.has_value())
+    btnStyle = std::move(btnStyle).color(Colors::black[900]);
+
+  if (!rawStyle.transitionSpec.has_value()) {
+    btnStyle = std::move(btnStyle).transition(0.5f, Curves::AppleEaseOut);
+  }
 
   Interaction result = Div(std::move(btnStyle), content);
 
@@ -47,8 +67,6 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
     result.pressed = false;
     result.clicked = false;
   }
-
-  pressMap[btnId] = result.pressed;
 
   return result;
 }

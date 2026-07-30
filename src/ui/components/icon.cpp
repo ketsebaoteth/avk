@@ -43,12 +43,16 @@ Interaction Icon(LucideIcon icon, Modifier &&modifier) {
 
   const std::string &iconString = iconStringCache[icon];
   const auto &style = modifier.getStyle();
-  const float requestedSize =
-      style.height.value_or(style.width.value_or(16.0f));
-  const uint32_t closestFontId = getClosestIconFontId(requestedSize);
 
-  return Text(iconString, closestFontId,
-              std::move(modifier).size(requestedSize, requestedSize));
+  // Read explicit fontSize or fallback to size/height
+  const float requestedSize = style.fontSize.value_or(
+      style.height.value_or(style.width.value_or(16.0f)));
+
+  // Uses single MSDF icon font atlas (g_uiState->defaultIconFontIds[0])!
+  return Text(iconString, getUiState()->defaultIconFontIds[0],
+              std::move(modifier)
+                  .fontSize(requestedSize)
+                  .size(requestedSize, requestedSize));
 }
 
 } // namespace atomic

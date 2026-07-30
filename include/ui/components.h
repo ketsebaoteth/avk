@@ -1,6 +1,7 @@
 #pragma once
 #include "animation/animation.h"
 #include "ui/generated/lucideIcons.generated.h"
+#include "ui/internal/context.h"
 #include "ui/renderer/interaction.h"
 #include "ui/style/modifier.h"
 #include "ui/utils/color.h"
@@ -12,8 +13,8 @@ struct Clay_ElementId;
 namespace atomic {
 
 inline const float DEFAULT_HEIGHT = 38.0f;
-inline const glm::vec4 DEFAULT_BACKGROUND_NORMAL = "#151515"_hex;
-inline const glm::vec4 DEFAULT_BORDER_NORMAL = "#2f2f2f"_hex;
+inline const glm::vec4 DEFAULT_BACKGROUND_NORMAL = "#ffffff"_hex;
+inline const glm::vec4 DEFAULT_BORDER_NORMAL = "#e5e5e5"_hex;
 inline const glm::vec4 DEFAULT_BORDER_RADIUS = glm::vec4(6.0f);
 inline const float DEFAULT_BORDER_WIDTH = 1.0f;
 
@@ -35,6 +36,9 @@ inline const AnimationCurve SmoothSwift =
  */
 Interaction Div(Modifier &&modifier = DefaultModifier(),
                 const std::function<void()> &content = nullptr);
+inline Interaction Div(const std::function<void()> &content = nullptr) {
+  return Div(DefaultModifier(), content);
+};
 
 /**
  * @brief Convenience inline wrapper for Row direction Div containers.
@@ -129,6 +133,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
 struct ScrollViewConfig {
   bool smoothScrolling = true;
   float smoothFactor = 0.05f;
+  float scrollSpeed = 105.0f;
 
   bool showVerticalBar = true;
   bool showHorizontalBar = false;
@@ -139,11 +144,14 @@ struct ScrollViewConfig {
   float scrollbarMarginBottom = 4.0f;
   float scrollbarMinThumbSize = 24.0f;
 
-  glm::vec4 scrollbarColor = glm::vec4(1.0f, 1.0f, 1.0f, 0.20f);
-  glm::vec4 scrollbarColorHover = glm::vec4(1.0f, 1.0f, 1.0f, 0.45f);
-  glm::vec4 scrollbarColorPressed = glm::vec4(1.0f, 1.0f, 1.0f, 0.65f);
+  // Optimized for light themes (Neutral light-gray tones)
+  glm::vec4 scrollbarColor = {0.82f, 0.82f, 0.85f,
+                              0.80f}; // Light gray (approx. gray[200])
+  glm::vec4 scrollbarColorHover = {0.65f, 0.65f, 0.68f,
+                                   0.90f}; // Medium gray on hover
+  glm::vec4 scrollbarColorPressed = {0.50f, 0.50f, 0.54f,
+                                     1.0f}; // Darker gray when pressed
 };
-
 /**
  * @brief Scrollable viewport container with custom configuration.
  */
@@ -185,12 +193,24 @@ Interaction Checkbox(Modifier &&modifier, bool &checked);
 
 namespace atomicComponents {
 
+enum class ToastDirection { Top, Bottom, Left, Right };
+
+struct ToastConfig {
+  float delay = 0.3f; // Delay in seconds before the toast pops up
+  ToastDirection direction =
+      ToastDirection::Top; // Pop-up direction relative to the trigger
+  float distance =
+      10.0f; // Slide distance in pixels for the smooth entrance animation
+  float duration = 0.2f; // Animation duration in seconds
+};
+
 /**
  * @brief Floating animated toast component.
  */
 void Toast(std::function<void()> triggerCallback,
            std::function<void()> toastContentCallback,
-           atomic::Modifier &&modifier = atomic::Modifier());
+           atomic::Modifier &&modifier = atomic::Modifier{},
+           ToastConfig config = ToastConfig{});
 
 /**
  * @brief Floating popover overlay component with automatic outside-click
@@ -200,4 +220,48 @@ void Popover(bool &isOpen, std::function<void()> triggerCallback,
              std::function<void()> popupCallback,
              atomic::Modifier &&popupModifier = atomic::Modifier());
 
+/**
+ * @brief Modern Shadcn-style Tab Button with smooth hover effects, active
+ * indicators, and click handling.
+ */
+inline bool TabButton(const std::string &tabId, const std::string &label,
+                      std::string &activeTab) {
+  using namespace atomic;
+
+  bool isActive = (activeTab == tabId);
+
+  // Modern colors
+  glm::vec4 activeBg = "#f4f4f5"_hex; // Target surface color
+
+  glm::vec4 inactiveBg = glm::vec4(activeBg.r, activeBg.g, activeBg.b, 0.0f);
+  glm::vec4 hoverBg = "#e4e4e7"_hex;
+
+  glm::vec4 activeTextColor = "#09090b"_hex;   // Dark zinc text
+  glm::vec4 inactiveTextColor = "#71717a"_hex; // Muted gray text
+
+  // Determine target background
+  bool isBtnHovered = !isActive && isHovered(hashLabel(tabId));
+  glm::vec4 targetBg =
+      isActive ? activeBg : (isBtnHovered ? hoverBg : inactiveBg);
+
+  // Build tab modifier with smooth 0.15s ease-out transitions
+  Modifier style = DefaultModifier()
+                       .id(tabId)
+                       .background(targetBg)
+                       .color(isActive ? activeTextColor : inactiveTextColor)
+                       .fontSize(13.0f)
+                       .fontWeight(isActive ? 500.0f : 400.0f)
+                       .padding(isBtnHovered ? 24 : 14, 8)
+                       .rounded(6.0f)
+                       .borderless()
+                       .transition(0.4f, AnimationCurve::Ease());
+
+  Interaction result = Button(label, std::move(style));
+
+  if (result.clicked) {
+    activeTab = tabId;
+  }
+
+  return result.clicked;
+}
 } // namespace atomicComponents

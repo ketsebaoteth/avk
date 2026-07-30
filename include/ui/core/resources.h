@@ -1,21 +1,22 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
 #include <vector>
+
 #ifndef AVK_ASSETS_DIR
 #define AVK_ASSETS_DIR "assets"
 #endif
 
-// forward
 namespace avk {
 class Font;
 }
 
 namespace atomic {
 
-/** @brief resolves an path to relative to assets/ folder but ignores if its
- * already global. */
+/** @brief Resolves a path relative to assets/ folder unless already absolute.
+ */
 inline std::string getPath(const std::string &relativePath) {
   namespace fs = std::filesystem;
   fs::path path(relativePath);
@@ -32,6 +33,19 @@ inline std::string getPath(const std::string &relativePath) {
 
   return (baseAssetsDir / path).string();
 }
+
+/** @brief Loads an MSDF vector font from a generated atlas PNG path and CSV
+ * metrics path. */
+uint32_t loadFont(const std::string &atlasImagePath,
+                  const std::string &metricsCsvPath);
+
+/** @brief Loads an MSDF vector font directly from in-memory PNG bytes and
+ * metrics string. */
+uint32_t loadFontFromMemory(std::span<const uint8_t> atlasPngBytes,
+                            const std::string &metricsCsvContent);
+
+/** @brief Resolves and loads an OS system font by name. */
+uint32_t loadSystemFont(const std::string &fontName, uint32_t fontSize = 16);
 
 /** @brief Loads an image texture into bindless descriptor slot memory. */
 uint32_t loadTexture(const std::string &path);

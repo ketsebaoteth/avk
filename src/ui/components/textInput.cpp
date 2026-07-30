@@ -3,6 +3,7 @@
 #include "clay.h"
 #include "ui/components.h"
 #include "ui/core/resources.h"
+#include "ui/internal/context.h"
 #include "ui/utils/color.h"
 
 namespace {
@@ -120,7 +121,7 @@ void appendUtf8(std::string &str, uint32_t codepoint, uint32_t &cursorBytePos) {
  * position.
  */
 uint32_t findWhereCursorLanded(const std::string &textBuffer, avk::Font *font,
-                               float relativeMouseX) {
+                               float relativeMouseX, float fontSize) {
   if (textBuffer.empty() || !font || relativeMouseX <= 0.0f) {
     return 0;
   }
@@ -128,7 +129,10 @@ uint32_t findWhereCursorLanded(const std::string &textBuffer, avk::Font *font,
   for (uint32_t i = 0; i < textBuffer.size();
        i = getNextCharIndex(textBuffer, i)) {
     uint32_t nextI = getNextCharIndex(textBuffer, i);
-    float currentWidth = font->measureText(textBuffer.substr(0, nextI)).x;
+
+    float currentWidth =
+        font->measureText(textBuffer.substr(0, nextI), fontSize).x;
+
     float midPoint = (prevWidth + currentWidth) * 0.5f;
     if (relativeMouseX < midPoint) {
       return i;
@@ -143,44 +147,73 @@ uint32_t findWhereCursorLanded(const std::string &textBuffer, avk::Font *font,
 namespace atomic {
 
 /**
- * @brief Interactive text input box component with text selection and cursor
- * controls.
+ * @brief Interactive text input box component with cursor selection, dragging,
+ * and focus effects.
  */
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                       const std::string &placeholder, uint32_t fontId) {
-  const auto &style = modifier.getStyle();
   auto *uiState = getUiState();
+  CascadingStyle inherited =
+      uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
 
-  Clay_ElementId textInputId = utils::layout::getNextId("TextInput");
+  const auto &rawStyle = modifier.getStyle();
+
+  std::string labelId = rawStyle.elementLabel.value_or("TextInput");
+  Clay_ElementId textInputId = utils::layout::getNextId(labelId.c_str());
   uint32_t elementId = textInputId.id;
 
-  float textboxHeight = style.height.value_or(DEFAULT_HEIGHT);
-  glm::vec4 bg = style.backgroundColor.value_or(DEFAULT_BACKGROUND_NORMAL);
-  glm::vec4 strokeColor = style.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
-  float strokeWidth = style.strokeThickness.value_or(DEFAULT_BORDER_WIDTH);
-  glm::vec4 radius = style.borderRadius.value_or(DEFAULT_BORDER_RADIUS);
+  bool isDisabled = rawStyle.disabled.value_or(false) || inherited.disabled;
+  bool isFocused = (!isDisabled && uiState->focusedElementId == elementId);
+  bool wasHovered = !isDisabled && isHovered(elementId);
 
-  uint16_t padL = style.padLeft.value_or(12);
-  uint16_t padR = style.padRight.value_or(12);
-  uint16_t padT = style.padTop.value_or(10);
-  uint16_t padB = style.padBottom.value_or(10);
+  // Default color and border resolution
+  glm::vec4 baseBg = rawStyle.backgroundColor.value_or("#ffffff"_hex);
+  glm::vec4 baseStrokeColor =
+      rawStyle.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
+  glm::vec4 hoverBg =
+      glm::vec4(baseBg.r * 0.98f, baseBg.g * 0.98f, baseBg.b * 0.98f, baseBg.a);
+  glm::vec4 focusBg =
+      glm::vec4(baseBg.r * 0.95f, baseBg.g * 0.95f, baseBg.b * 0.95f, baseBg.a);
+  glm::vec4 computedBg = isFocused ? focusBg : (wasHovered ? hoverBg : baseBg);
+  glm::vec4 baseStrokeWidth =
+      rawStyle.strokeThickness.value_or(glm::vec4(DEFAULT_BORDER_WIDTH));
 
-  avk::Font *font = getFont(fontId != 0 ? fontId : getDefaultFontId());
-  float fontHeight = font ? font->getLineHeight() : 18.0f;
-
-  bool isFocused = (uiState->focusedElementId == elementId);
-
-  glm::vec4 activeBorder = isFocused ? Colors::orange : strokeColor;
-  float activeBorderWidth = isFocused ? 1.5f : strokeWidth;
+  glm::vec4 activeBorderWidth = isFocused ? glm::vec4(1.5f) : baseStrokeWidth;
 
   Modifier containerStyle = std::move(modifier)
-                                .background(bg)
-                                .border(activeBorder, activeBorderWidth)
-                                .rounded(radius.x)
-                                .height(textboxHeight)
-                                .padding(padL, padR, padT, padB)
+                                .id(labelId)
+                                .background(computedBg)
+                                .border(baseStrokeColor, activeBorderWidth)
+                                .disabled(isDisabled)
                                 .relative()
                                 .row();
+
+  if (!rawStyle.fontWeight.has_value())
+    containerStyle = std::move(containerStyle).fontWeight(400.0f);
+  if (!rawStyle.padLeft.has_value())
+    containerStyle = std::move(containerStyle).padding(10, 8);
+  if (!rawStyle.borderRadius.has_value())
+    containerStyle = std::move(containerStyle).rounded(10.0f);
+  if (!rawStyle.textColor.has_value())
+    containerStyle = std::move(containerStyle).color(Colors::black[900]);
+
+  if (!rawStyle.transitionSpec.has_value()) {
+    containerStyle =
+        std::move(containerStyle).transition(0.2f, Curves::AppleEaseOut);
+  }
+
+  const auto &finalStyle = containerStyle.getStyle();
+
+  float fontSize = finalStyle.fontSize.value_or(14.0f);
+  float fontWeight = finalStyle.fontWeight.value_or(300.0f);
+  glm::vec4 textColor = finalStyle.textColor.value_or(Colors::black[900]);
+
+  uint16_t padL = finalStyle.padLeft.value_or(12);
+  // uint16_t padR = finalStyle.padRight.value_or(12);
+  // uint16_t padT = finalStyle.padTop.value_or(10);
+  // uint16_t padB = finalStyle.padBottom.value_or(10);
+
+  avk::Font *font = getFont(fontId != 0 ? fontId : getDefaultFontId());
 
   auto &inputState = uiState->inputStateMap[elementId];
 
@@ -205,18 +238,18 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   };
 
   Interaction result = Div(std::move(containerStyle), [&]() {
-    if (result.hovered) {
+    if (result.hovered && !isDisabled) {
       uiState->anyInputBoxHovered = true;
     }
 
     ComputedLayout bounds = utils::layout::getComputedLayout(textInputId);
-    if (bounds.found) {
+    if (bounds.found && !isDisabled) {
       float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
 
       if (result.hovered && uiState->pointerPressed &&
           !inputState.isDraggingText) {
         uint32_t landedPos =
-            findWhereCursorLanded(textBuffer, font, relativeMouseX);
+            findWhereCursorLanded(textBuffer, font, relativeMouseX, fontSize);
         uiState->focusedElementId = elementId;
         inputState.selectionAnchor = landedPos;
         inputState.cursorPosition = landedPos;
@@ -230,7 +263,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
       if (isFocused && uiState->pointerDown && inputState.isDraggingText) {
         uint32_t currentLandedPos =
-            findWhereCursorLanded(textBuffer, font, relativeMouseX);
+            findWhereCursorLanded(textBuffer, font, relativeMouseX, fontSize);
         inputState.cursorPosition = currentLandedPos;
         inputState.selectionStart =
             std::min(inputState.selectionAnchor, currentLandedPos);
@@ -323,48 +356,70 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       }
     }
 
+    float textboxHeight = bounds.found
+                              ? bounds.height()
+                              : finalStyle.height.value_or(DEFAULT_HEIGHT);
+
     if (isFocused && (inputState.selectionStart != inputState.selectionEnd) &&
         font) {
       float startX =
-          font->measureText(textBuffer.substr(0, inputState.selectionStart)).x;
+          font->measureText(textBuffer.substr(0, inputState.selectionStart),
+                            fontSize)
+              .x +
+          padL;
       float endX =
-          font->measureText(textBuffer.substr(0, inputState.selectionEnd)).x;
+          font->measureText(textBuffer.substr(0, inputState.selectionEnd),
+                            fontSize)
+              .x +
+          padL;
       float selectW = endX - startX;
-      float selectH = fontHeight * 0.85f;
-      float selectY = (textboxHeight - selectH) * 0.5f - padT;
+      float selectH = font->getLineHeight() / 2;
+      float selectY = (textboxHeight - selectH) * 0.5f;
 
       Div(DefaultModifier()
               .absolute()
               .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
               .offset(startX, selectY)
               .size(selectW, selectH)
-              .background(glm::vec4(0.0f, 0.3f, 0.67f, 0.65f))
-              .rounded(3.0f));
+              .background(glm::vec4(0.0f, 0.3f, 0.67f, 0.65f)));
     }
 
-    if (textBuffer.empty() && !isFocused) {
+    if (textBuffer.empty()) {
       Text(placeholder, fontId,
-           DefaultModifier().color(glm::vec4(Colors::gray[400])));
+           DefaultModifier()
+               .color("#737373"_hex)
+               .fontSize(fontSize)
+               .fontWeight(fontWeight));
     } else {
-      Text(textBuffer, fontId, DefaultModifier().color(Colors::white));
+      Text(textBuffer, fontId,
+           DefaultModifier().color(textColor).fontSize(fontSize).fontWeight(
+               fontWeight));
     }
 
     if (isFocused && (inputState.selectionStart == inputState.selectionEnd) &&
         font) {
       float cursorOffset =
-          font->measureText(textBuffer.substr(0, inputState.cursorPosition)).x;
-      float caretH = fontHeight * 0.85f;
-      float caretY = (textboxHeight - caretH) * 0.5f - padT;
+          font->measureText(textBuffer.substr(0, inputState.cursorPosition),
+                            fontSize)
+              .x +
+          padL;
+      float caretH = font->getLineHeight() / 2;
+      float caretY = (textboxHeight - caretH) * 0.5f;
 
       Div(DefaultModifier()
               .absolute()
               .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
               .offset(cursorOffset, caretY)
               .size(2.0f, caretH)
-              .background(Colors::white)
-              .rounded(1.0f));
+              .background(textColor));
     }
   });
+
+  if (isDisabled) {
+    result.hovered = false;
+    result.pressed = false;
+    result.clicked = false;
+  }
 
   if (isFocused && uiState->enterPressed) {
     result.clicked = true;

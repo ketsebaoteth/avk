@@ -54,25 +54,28 @@ TextureManager &TextureManager::operator=(TextureManager &&other) noexcept {
   }
   return *this;
 }
+// In src/avk/avk_texture.cpp:
+
 void TextureManager::createFontSampler() {
   VkDevice device = m_context->getDevice();
 
   VkSamplerCreateInfo samplerInfo{};
   samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-  samplerInfo.magFilter =
-      VK_FILTER_NEAREST; // Point-filtering for sharp text borders!
-  samplerInfo.minFilter = VK_FILTER_NEAREST;
+
+  samplerInfo.magFilter = VK_FILTER_LINEAR;
+  samplerInfo.minFilter = VK_FILTER_LINEAR;
+
   samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   samplerInfo.anisotropyEnable = VK_FALSE;
   samplerInfo.unnormalizedCoordinates = VK_FALSE;
   samplerInfo.compareEnable = VK_FALSE;
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
 
   if (vkCreateSampler(device, &samplerInfo, nullptr, &m_fontSampler) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct Font Nearest Sampler." << std::endl;
+    std::cerr << "avk: Failed to construct Font Linear Sampler." << std::endl;
   }
 }
 
@@ -109,6 +112,243 @@ void TextureManager::release() {
     vkDestroyDescriptorSetLayout(device, m_descriptorSetLayout, nullptr);
     m_descriptorSetLayout = VK_NULL_HANDLE;
   }
+}
+uint32_t TextureManager::loadRawPixels(const uint8_t *pixels, uint32_t width,
+                                       uint32_t height) {
+  if (m_freeSlots.empty() || !pixels || width == 0 || height == 0) {
+    std::cerr << "avk: Cannot load raw pixels from empty buffer!" << std::endl;
+    return 0;
+  }
+
+  VkDeviceSize imageSize = width * height * 4;
+
+  // 1. Allocate staging buffer to transfer raw RGBA pixel data
+  AllocatedBuffer stagingBuffer = m_context->getAllocator()->createBuffer(
+      imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+      VMA_ALLOCATION_CREATE_MAPPED_BIT |
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+  std::memcpy(stagingBuffer.getMappedData(), pixels, imageSize);
+
+  vmaFlushAllocation(m_context->getAllocator()->getVmaAllocator(),
+                     stagingBuffer.getAllocation(), 0, VK_WHOLE_SIZE);
+
+  // 2. Create target optimal GPU image
+  VkImageCreateInfo imageInfo{};
+  imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  imageInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageInfo.extent.width = width;
+  imageInfo.extent.height = height;
+  imageInfo.extent.depth = 1;
+  imageInfo.mipLevels = 1;
+  imageInfo.arrayLayers = 1;
+  imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+  imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  imageInfo.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+  AllocatedImage gpuImage = m_context->getAllocator()->createImage(
+      imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+
+  // 3. Record and submit copy commands to GPU
+  VkDevice device = m_context->getDevice();
+  VkCommandPool tempPool = VK_NULL_HANDLE;
+  VkCommandBuffer cmd = beginSingleTimeCommands(tempPool);
+
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = gpuImage.getImage();
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseMipLevel = 0;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount = 1;
+  barrier.srcAccessMask = 0;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  VkBufferImageCopy region{};
+  region.bufferOffset = 0;
+  region.bufferRowLength = 0;
+  region.bufferImageHeight = 0;
+  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  region.imageSubresource.mipLevel = 0;
+  region.imageSubresource.baseArrayLayer = 0;
+  region.imageSubresource.layerCount = 1;
+  region.imageOffset = {0, 0, 0};
+  region.imageExtent = {width, height, 1};
+
+  vkCmdCopyBufferToImage(cmd, stagingBuffer.getBuffer(), gpuImage.getImage(),
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  endSingleTimeCommands(cmd, tempPool);
+  stagingBuffer.destroy();
+
+  // 4. Create ImageView wrapper
+  VkImageView view = VK_NULL_HANDLE;
+  VkImageViewCreateInfo viewInfo{};
+  viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  viewInfo.image = gpuImage.getImage();
+  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+  viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  viewInfo.subresourceRange.baseMipLevel = 0;
+  viewInfo.subresourceRange.levelCount = 1;
+  viewInfo.subresourceRange.baseArrayLayer = 0;
+  viewInfo.subresourceRange.layerCount = 1;
+
+  if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+    gpuImage.destroy();
+    return 0;
+  }
+
+  return registerTexture(std::move(gpuImage), view, m_sharedSampler);
+}
+uint32_t TextureManager::loadTextureFromMemory(std::span<const uint8_t> bytes) {
+  if (m_freeSlots.empty() || bytes.empty()) {
+    std::cerr << "avk: Cannot load texture from empty memory buffer!"
+              << std::endl;
+    return 0;
+  }
+
+  // 1. Load image pixels directly from memory via STB
+  int texWidth = 0, texHeight = 0, texChannels = 0;
+  stbi_uc *pixels = stbi_load_from_memory(
+      bytes.data(), static_cast<int>(bytes.size()), &texWidth, &texHeight,
+      &texChannels, STBI_rgb_alpha);
+
+  if (!pixels) {
+    std::cerr << "avk: Failed to decode texture from memory buffer!"
+              << std::endl;
+    return 0;
+  }
+
+  VkDeviceSize imageSize = texWidth * texHeight * 4;
+
+  // 2. Allocate staging buffer to transfer pixel data
+  AllocatedBuffer stagingBuffer = m_context->getAllocator()->createBuffer(
+      imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+      VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+      VMA_ALLOCATION_CREATE_MAPPED_BIT |
+          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+  std::memcpy(stagingBuffer.getMappedData(), pixels, imageSize);
+  stbi_image_free(pixels);
+
+  vmaFlushAllocation(m_context->getAllocator()->getVmaAllocator(),
+                     stagingBuffer.getAllocation(), 0, VK_WHOLE_SIZE);
+
+  // 3. Create target optimal GPU image
+  VkImageCreateInfo imageInfo{};
+  imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  imageInfo.imageType = VK_IMAGE_TYPE_2D;
+  imageInfo.extent.width = static_cast<uint32_t>(texWidth);
+  imageInfo.extent.height = static_cast<uint32_t>(texHeight);
+  imageInfo.extent.depth = 1;
+  imageInfo.mipLevels = 1;
+  imageInfo.arrayLayers = 1;
+  imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+  imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+  imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  imageInfo.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+  imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+
+  AllocatedImage gpuImage = m_context->getAllocator()->createImage(
+      imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+
+  // 4. Record and submit copy commands to GPU
+  VkDevice device = m_context->getDevice();
+  VkCommandPool tempPool = VK_NULL_HANDLE;
+  VkCommandBuffer cmd = beginSingleTimeCommands(tempPool);
+
+  VkImageMemoryBarrier barrier{};
+  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = gpuImage.getImage();
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.baseMipLevel = 0;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.baseArrayLayer = 0;
+  barrier.subresourceRange.layerCount = 1;
+  barrier.srcAccessMask = 0;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  VkBufferImageCopy region{};
+  region.bufferOffset = 0;
+  region.bufferRowLength = 0;
+  region.bufferImageHeight = 0;
+  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  region.imageSubresource.mipLevel = 0;
+  region.imageSubresource.baseArrayLayer = 0;
+  region.imageSubresource.layerCount = 1;
+  region.imageOffset = {0, 0, 0};
+  region.imageExtent = {static_cast<uint32_t>(texWidth),
+                        static_cast<uint32_t>(texHeight), 1};
+
+  vkCmdCopyBufferToImage(cmd, stagingBuffer.getBuffer(), gpuImage.getImage(),
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &barrier);
+
+  endSingleTimeCommands(cmd, tempPool);
+  stagingBuffer.destroy();
+
+  // 5. Create ImageView wrapper
+  VkImageView view = VK_NULL_HANDLE;
+  VkImageViewCreateInfo viewInfo{};
+  viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+  viewInfo.image = gpuImage.getImage();
+  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+  viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  viewInfo.subresourceRange.baseMipLevel = 0;
+  viewInfo.subresourceRange.levelCount = 1;
+  viewInfo.subresourceRange.baseArrayLayer = 0;
+  viewInfo.subresourceRange.layerCount = 1;
+
+  if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
+    std::cerr << "avk: Failed to build VkImageView for memory texture."
+              << std::endl;
+    gpuImage.destroy();
+    return 0;
+  }
+
+  // 6. Register inside bindless set
+  return registerTexture(std::move(gpuImage), view, m_sharedSampler);
 }
 
 uint32_t TextureManager::loadTexture(const std::string &path) {

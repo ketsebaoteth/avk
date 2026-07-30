@@ -6,164 +6,306 @@
 #include "ui/core/frame.h"
 #include "ui/core/resources.h"
 #include "ui/generated/lucideIcons.generated.h"
+#include "ui/style/modifier.h"
+#include "ui/style/style.h"
 #include "ui/utils/color.h"
+#include "ui/utils/extraComponents.h"
 #include <print>
 #include <string>
+#include <vector>
 
-/**
- * @brief Menu item component with pure alpha fade-in/out on hover.
- */
-void MenuItem(LucideIcon icon, const std::string &label,
-              std::function<void()> rightBadge = nullptr) {
+// History navigation state manager ("React at home" router state)
+struct DocNavigation {
+  std::vector<std::string> history = {"buttonTab"};
+  size_t pointer = 0;
+
+  void push(const std::string &tab) {
+    if (pointer < history.size() - 1) {
+      history.erase(history.begin() + pointer + 1, history.end());
+    }
+    if (history[pointer] != tab) {
+      history.push_back(tab);
+      pointer = history.size() - 1;
+    }
+  }
+
+  void back() {
+    if (pointer > 0)
+      pointer--;
+  }
+
+  void forward() {
+    if (pointer < history.size() - 1)
+      pointer++;
+  }
+
+  std::string current() const { return history[pointer]; }
+
+  bool canBack() const { return pointer > 0; }
+  bool canForward() const { return pointer < history.size() - 1; }
+};
+
+inline void MacosWindow(const std::function<void()> &content,
+                        std::string title) {
   using namespace atomic;
 
-  uint32_t itemId = utils::layout::getNextId("MenuItem").id;
-
-  static std::unordered_map<uint32_t, bool> hoverMap;
-  bool wasHovered = hoverMap[itemId];
-
-  glm::vec4 targetBg = "#f2f2f2"_hex;
-  targetBg.a = wasHovered ? 1.0f : 0.0f;
-
-  glm::vec4 animatedBg =
-      AnimateVec4(itemId, targetBg, 0.5f, Curves::AppleEaseOut);
-
-  Interaction result = Button(
-      DefaultModifier()
-          .background(animatedBg)
-          .width(244.0f)
-          .padding(12, 10)
-          .rounded(12.0f)
-          .alignY(AlignmentY::Center)
-          .gap(12)
-          .row(),
-      [&]() {
-        Icon(icon, DefaultModifier().size(21.0f, 21.0f).color("#18181b"_hex));
-        Text(label, DefaultModifier().color("#18181b"_hex));
-
-        if (rightBadge) {
-          Div(DefaultModifier().row().alignX(AlignmentX::Right).width(-1.0f),
-              [&]() { rightBadge(); });
-        }
-      });
-
-  hoverMap[itemId] = result.hovered;
-}
-
-void drawProfileMenuScene(VeraWindow *window, uint32_t avatarTextureId) {
-  using namespace atomic;
-  using namespace atomicComponents;
-
-  static bool isMenuOpen = true;
-  auto width = static_cast<float>(getWidth(window));
-  auto height = static_cast<float>(getHeight(window));
-
-  Column(
-      DefaultModifier()
+  Div(DefaultModifier()
+          .widthGrow()
+          .margin(0, 40)
+          .column()
           .background("#ffffff"_hex)
-          .center()
-          .size(width, height)
-          .padding(24, 24),
+          .border(Colors::gray[100], 1)
+          .rounded(10.0f),
       [&]() {
-        Div(DefaultModifier()
-                .row()
-                .center()
-                .gap(12)
-                .alignX(AlignmentX::Right)
-                .relative(),
+        Div(DefaultModifier().widthGrow().border(Colors::gray[100],
+                                                 {0.0f, 0.0f, 0.0f, 1.0f}),
             [&]() {
-              // 1. "Share +" Button
-              Button(DefaultModifier()
-                         .background("#efefef"_hex)
-                         .rounded(20.0f)
-                         .padding(16, 8)
-                         .gap(6),
-                     [&]() {
-                       Text("Share", DefaultModifier().color("#18181b"_hex));
-                       Icon(LucideIcon::Plus, DefaultModifier()
-                                                  .size(14.0f, 14.0f)
-                                                  .color("#18181b"_hex));
-                     });
-
-              // 2. Avatar Trigger Button
-              Interaction avatar = Div(DefaultModifier()
-                                           .size(44.0f, 44.0f)
-                                           .rounded(22.0f)
-                                           .border("#f97316"_hex, 2.0f)
-                                           .padding(2, 2)
-                                           .center(),
-                                       [&]() {
-                                         Image(DefaultModifier()
-                                                   .size(36.0f, 36.0f)
-                                                   .rounded(18.0f)
-                                                   .cover(),
-                                               avatarTextureId);
-                                       });
-
-              if (avatar.clicked) {
-                isMenuOpen = !isMenuOpen;
-              }
-
-              // 3. Smooth Fade-In/Out Opacity Animation
-              float opacity =
-                  AnimateFloat("MenuFade", isMenuOpen ? 1.0f : 0.0f, 0.15f);
-
-              if (opacity > 0.01f) {
-                Modifier popupStyle =
-                    DefaultModifier()
-                        .absolute()
-                        .attach(AttachPoint::TopRight, AttachPoint::BottomRight)
-                        .offset(-4.0f, 8.0f)
-                        .width(260.0f)
-                        .subtleShadow(1)
-                        .background(Colors::white)
-                        .border("#e4e4e7"_hex, 1.0f)
-                        .opacity(opacity)
-                        .rounded(18.0f)
-                        .padding(8, 8)
-                        .column()
-                        .gap(2);
-
-                // 4. Floating Menu Card
-                Interaction popup = Div(std::move(popupStyle), [&]() {
-                  MenuItem(LucideIcon::User, "Profile");
-                  MenuItem(LucideIcon::MessageCircle, "Community");
-
-                  MenuItem(LucideIcon::CreditCard, "Subscription", [&]() {
+              Div(DefaultModifier()
+                      .row()
+                      .alignY(AlignmentY::Center)
+                      .widthGrow()
+                      .padding(0, 24)
+                      .gap(8),
+                  [&]() {
                     Div(DefaultModifier()
-                            .row()
-                            .center()
-                            .gap(4)
-                            .background("#fae8ff"_hex)
-                            .border("#f0abfc"_hex, 1.0f)
-                            .padding(8, 3)
-                            .rounded(8.0f),
+                            .gap(26)
+                            .alignY(AlignmentY::Center)
+                            .margin(30, 0),
                         [&]() {
-                          Icon(LucideIcon::Zap, DefaultModifier()
-                                                    .size(12.0f, 12.0f)
-                                                    .color("#a855f7"_hex));
-                          Text("PRO", DefaultModifier().color("#a855f7"_hex));
+                          Div([]() {
+                            Div(DefaultModifier()
+                                    .size(12, 12)
+                                    .rounded(6.0f)
+                                    .background("#ff5f56"_hex));
+                            Div(DefaultModifier()
+                                    .size(12, 12)
+                                    .rounded(6.0f)
+                                    .background("#ffbd2e"_hex));
+                            Div(DefaultModifier()
+                                    .size(12, 12)
+                                    .rounded(6.0f)
+                                    .background("#27c93f"_hex));
+                          });
+                          Text(title, DefaultModifier()
+                                          .fontSize(12)
+                                          .fontWeight(400)
+                                          .color(Colors::gray[300]));
                         });
                   });
+            });
 
-                  MenuItem(LucideIcon::Sliders, "Settings");
-
-                  // Divider Line
-                  Div(DefaultModifier().width(244.0f).height(1.0f).background(
-                      "#f4f4f5"_hex));
-
-                  MenuItem(LucideIcon::Info, "Help center");
-                  MenuItem(LucideIcon::LogOut, "Sign out");
-                });
-
-                // 5. Automatic Click Outside to Dismiss
-                if (getUiState()->pointerPressed && !avatar.hovered &&
-                    !popup.hovered) {
-                  isMenuOpen = false;
-                }
+        Div(DefaultModifier()
+                .widthGrow()
+                .heightGrow()
+                .alignX(AlignmentX::Center)
+                .alignY(AlignmentY::Center)
+                .padding(200),
+            [&]() {
+              if (content) {
+                content();
               }
             });
       });
+}
+
+// Reusable component helper using the button interaction struct's .clicked
+// property
+// Updated helper taking an ID prefix
+void drawDocHeader(const std::string &title, const std::string &subtitle,
+                   DocNavigation &nav, std::string &activeTab,
+                   const std::string &idPrefix) {
+  using namespace atomic;
+  using namespace atomicComponents;
+
+  Column(DefaultModifier().gap(10).widthGrow(), [&]() {
+    Row(DefaultModifier().widthGrow().center(), [&]() {
+      Text(title, DefaultModifier().fontSize(40).fontWeight(700).textColor(
+                      Colors::black[1000]));
+      Div(DefaultModifier().widthGrow());
+
+      // Unique ID per tab using the prefix
+      std::string backId = idPrefix + "_goBackBtn";
+      std::string fwdId = idPrefix + "_goForwardBtn";
+
+      // Back Button with Interaction Check
+      Toast(
+          [&]() {
+            if (Button(DefaultModifier().id(backId),
+                       [&]() { Icon(LucideIcon::CornerUpLeft); })
+                    .clicked &&
+                nav.canBack()) {
+              nav.back();
+              activeTab = nav.current();
+            }
+          },
+          [&]() { Text("Go back to prev page"); });
+
+      // Forward Button with Interaction Check
+      Toast(
+          [&]() {
+            if (Button(DefaultModifier().id(fwdId),
+                       [&]() { Icon(LucideIcon::CornerUpRight); })
+                    .clicked &&
+                nav.canForward()) {
+              nav.forward();
+              activeTab = nav.current();
+            }
+          },
+          [&]() { Text("Go to next page"); });
+    });
+    Text(subtitle, DefaultModifier().fontSize(14).fontWeight(400).textColor(
+                       Colors::black[500]));
+  });
+}
+
+void drawButtonTab(DocNavigation &nav, std::string &activeTab) {
+  using namespace atomic;
+  using namespace atomicComponents;
+  using namespace atomic::extras;
+
+  Column(DefaultModifier().gap(24).widthGrow(), [&]() {
+    drawDocHeader(
+        "The Button",
+        "At its core, a Button component is an interactive UI primitive "
+        "designed to translate a physical user intent into a digital action.",
+        nav, activeTab, "buttonTab");
+
+    // 2. Default Button Example
+    Column(DefaultModifier().gap(12).widthGrow(), []() {
+      Text("Default Button",
+           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+               Colors::black[900]));
+      MacosWindow(
+          []() {
+            Button(DefaultModifier().id("defaultButtonInstance"), [&]() {
+              Text("Button", DefaultModifier().fontSize(13).fontWeight(500));
+            });
+          },
+          "Default button example");
+
+      CodeBlock(
+          "Button(DefaultModifier().id(\"defaultButtonInstance\"), [&]() {\n"
+          "    Text(\"Button\", "
+          "DefaultModifier().fontSize(13).fontWeight(500));\n"
+          "});",
+          "cpp");
+    });
+
+    // 3. Button with Icon & Text Content
+    Column(DefaultModifier().gap(12).widthGrow(), []() {
+      Text("Icon & Text Composition",
+           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+               Colors::black[900]));
+      Text("Buttons accept custom layout children via content lambdas, "
+           "allowing you to compose icons and text seamlessly inside a Row.",
+           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+
+      MacosWindow(
+          []() {
+            Button(DefaultModifier().id("iconTextButtonInstance"), [&]() {
+              Row(DefaultModifier().gap(8).center(), [&]() {
+                Icon(LucideIcon::Sparkles,
+                     DefaultModifier().size(14, 14).color(Colors::black[800]));
+                Text("Generate Asset",
+                     DefaultModifier().fontSize(13).fontWeight(500));
+              });
+            });
+          },
+          "Button with custom content layout");
+
+      CodeBlock(
+          "Button(DefaultModifier().id(\"iconTextButtonInstance\"), [&]() {\n"
+          "    Row(DefaultModifier().gap(8).center(), [&]() {\n"
+          "        Icon(LucideIcon::Sparkles, DefaultModifier().size(14, "
+          "14).color(Colors::black[800]));\n"
+          "        Text(\"Generate Asset\", "
+          "DefaultModifier().fontSize(13).fontWeight(500));\n"
+          "    });\n"
+          "});",
+          "cpp");
+    });
+  });
+}
+
+void drawDivTab(DocNavigation &nav, std::string &activeTab) {
+  using namespace atomic;
+  using namespace atomicComponents;
+
+  Column(DefaultModifier().gap(24).widthGrow(), [&]() {
+    drawDocHeader("The Div",
+                  "A foundational layout primitive used to structure and space "
+                  "child elements in flexible column or row arrangements.",
+                  nav, activeTab, "divTab");
+  });
+}
+
+void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
+  using namespace atomic;
+  using namespace atomicComponents;
+
+  (void)banner; // Silence unused warning if banner isn't rendered here yet
+
+  auto width = static_cast<float>(getWidth(window));
+  auto height = static_cast<float>(getHeight(window));
+  static std::string searchInput = "";
+  static std::string activeTab = "buttonTab";
+  static DocNavigation docNav;
+
+  Row(DefaultModifier().background("#ffffff"_hex).size(width, height), [&]() {
+    Div(DefaultModifier()
+            .heightGrow()
+            .padding(30, 50)
+            .column()
+            .gap(10)
+            .relative(),
+        [&]() {
+          Div(DefaultModifier()
+                  .absolute()
+                  .right(0)
+                  .width(1.0f)
+                  .heightGrow()
+                  .linearGradient(180.0f, {
+                                              {Colors::transparent, 0.2f},
+                                              {Colors::gray[200], 0.5f},
+                                              {Colors::transparent, 0.8f},
+                                          }));
+
+          Text("Gallary", DefaultModifier().fontSize(20).fontWeight(600).color(
+                              "#000000"_hex));
+          TextInput(searchInput, "search ...",
+                    DefaultModifier().id("searchField").width(500));
+
+          Div(DefaultModifier().column().heightGrow().widthGrow().padding(5,
+                                                                          50),
+              [&]() {
+                if (TabButton("buttonTab", "Button", activeTab)) {
+                  activeTab = "buttonTab";
+                  docNav.push("buttonTab");
+                }
+                if (TabButton("divTab", "Div", activeTab)) {
+                  activeTab = "divTab";
+                  docNav.push("divTab");
+                }
+              });
+        });
+
+    ScrollView(DefaultModifier().heightGrow().id("DocsScrollView").widthGrow(),
+               [&]() {
+                 Div(DefaultModifier()
+                         .padding(200, 150)
+                         .alignX(AlignmentX::Center)
+                         .column()
+                         .widthGrow()
+                         .heightGrow(),
+                     [&]() {
+                       if (activeTab == "buttonTab") {
+                         drawButtonTab(docNav, activeTab);
+                       } else if (activeTab == "divTab") {
+                         drawDivTab(docNav, activeTab);
+                       }
+                     });
+               });
+  });
 }
 
 int main() {
@@ -180,14 +322,14 @@ int main() {
   VeraWindow *window = windowResult.value();
 
   VeraNativeHandle handle = window->getNativeHandle();
-  atomic::initialize(handle, true);
+  atomic::initialize(app, handle, true);
   atomic::registerWindow(window);
 
   window->setTitlebarHitTestRegions({.dragRegion = VeraRect{0, 0, 800, 30},
                                      .minimizeButton = VeraRect{740, 5, 30, 20},
                                      .maximizeButton = VeraRect{770, 5, 30, 20},
                                      .closeButton = VeraRect{800, 5, 30, 20}});
-  auto id = atomic::loadTexture("/home/k/Pictures/wallpapers/jjk.png");
+  auto id = atomic::loadTexture("images/Banner.png");
 
   bool isClosing = false;
   window->setCloseRequestCallback([&]() -> bool {
@@ -204,6 +346,7 @@ int main() {
 
         atomic::resizeWindow(window, newWidth, newHeight);
 
+        // Fixed the duplicate .maximizeButton designation to .minimizeButton
         window->setTitlebarHitTestRegions(
             {.dragRegion = VeraRect{0, 0, newWidth, 30},
              .minimizeButton = VeraRect{newWidth - 60, 5, 30, 20},

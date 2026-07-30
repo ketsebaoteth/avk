@@ -1,14 +1,17 @@
 #include "ui/internal/context.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
+#include "core/app/App.h"
 #include "ui/core/resources.h"
 #include "ui/utils/clayUtils.h"
 #include <iostream>
+#include <memory>
 
 namespace atomic {
 
-namespace { // internal linkage
+namespace {
 std::unique_ptr<UIState> g_uiState = nullptr;
+VeraApp *g_veraApp = nullptr;
 [[maybe_unused]] static void *g_clayArenaMemory = nullptr;
 uint32_t g_elementIdCounter = 0;
 } // namespace
@@ -16,10 +19,15 @@ uint32_t g_elementIdCounter = 0;
 void resetGlobalIdCounter() { g_elementIdCounter = 0; };
 UIState *getUiState() { return g_uiState.get(); };
 uint32_t &getElementIdCounter() { return g_elementIdCounter; };
+VeraApp *getVeraApp() { return g_veraApp; }
 
-void initialize(std::optional<VeraNativeHandle> nativeDisplay,
+/** @brief Initializes the atomicUI engine context, renderer, and MSDF vector
+ * font atlases. */
+void initialize(VeraApp &veraAppPtr,
+                std::optional<VeraNativeHandle> nativeDisplay,
                 bool enableValidation) {
   g_uiState = std::make_unique<UIState>();
+  g_veraApp = &veraAppPtr;
 
   g_uiState->context =
       std::make_unique<avk::VulkanContext>(nativeDisplay, enableValidation);
@@ -35,24 +43,25 @@ void initialize(std::optional<VeraNativeHandle> nativeDisplay,
                   Clay_ErrorHandler{utils::layout::handleClayError, nullptr});
   Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
 
-  g_uiState->defaultFontId = loadFont("fonts/Inter_24pt-Regular.ttf", 19);
+  // 1. Load Single MSDF Vector Font for Text (Inter)
+  std::string defaultAtlas =
+      std::string(AVK_GENERATED_FONTS_DIR) + "/Roboto-Regular_atlas.png";
+  std::string defaultMetrics =
+      std::string(AVK_GENERATED_FONTS_DIR) + "/Roboto-Regular_metrics.csv";
+  g_uiState->defaultFontId = loadFont(defaultAtlas, defaultMetrics);
 
-  std::vector<uint32_t> iconCodepoints;
-  iconCodepoints.reserve(6400);
-  for (uint32_t i = 0xE000; i <= 0xF8FF; ++i) {
-    iconCodepoints.push_back(i);
-  }
+  // 2. Load Single MSDF Vector Font for Icons (Lucide) - Single Vector Atlas,
+  // NO Tiers!
+  std::string lucideAtlas =
+      std::string(AVK_GENERATED_FONTS_DIR) + "/lucide_atlas.png";
+  std::string lucideMetrics =
+      std::string(AVK_GENERATED_FONTS_DIR) + "/lucide_metrics.csv";
+  g_uiState->defaultIconFontIds[0] = loadFont(lucideAtlas, lucideMetrics);
 
-  g_uiState->defaultIconFontIds[0] =
-      loadFont("fonts/lucide.ttf", 12, iconCodepoints);
-  g_uiState->defaultIconFontIds[1] =
-      loadFont("fonts/lucide.ttf", 16, iconCodepoints);
-  g_uiState->defaultIconFontIds[2] =
-      loadFont("fonts/lucide.ttf", 24, iconCodepoints);
-  g_uiState->defaultIconFontIds[3] =
-      loadFont("fonts/lucide.ttf", 32, iconCodepoints);
-  g_uiState->defaultIconFontIds[4] =
-      loadFont("fonts/lucide.ttf", 48, iconCodepoints);
+  // Diagnostic check:
+  std::println(
+      "[atomicUI]: Default Inter MSDF Font loaded successfully with ID: {}",
+      g_uiState->defaultFontId);
 }
 
 void shutdown() {
@@ -63,12 +72,20 @@ void shutdown() {
     vkDeviceWaitIdle(g_uiState->context->getDevice());
   }
 
+  // 1. Clear active sessions
   g_uiState->sessions.clear();
+
+  g_uiState->fonts.clear();
+
+  // 3. Destroy renderer
   g_uiState->renderer.reset();
+
+  // 4. NOW safe to destroy VulkanContext & TextureManager
   g_uiState->context.reset();
 
   if (g_uiState->clayArenaMemory) {
-    std::free(g_uiState->clayArenaMemory);
+    std::free(g_clayArenaMemory);
+    g_clayArenaMemory = nullptr;
   }
 
   g_uiState.reset();

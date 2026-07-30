@@ -1,4 +1,3 @@
-
 #pragma once
 #include "glm/glm.hpp"
 #include "ui/style/style.h"
@@ -21,5 +20,11 @@ struct RenderPayload {
   glm::vec2 translate{0.0f, 0.0f};
   float textOffset = 0.0f;
   std::vector<BoxShadow> boxShadows;
+  std::optional<Gradient> gradient;
+
+  // Typography Payload
+  float fontSize = 16.0f;
+  float letterSpacing = 0.0f;
+  float fontWeight = 400.0f;
 };
 } // namespace atomic

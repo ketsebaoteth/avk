@@ -43,7 +43,7 @@ struct InstanceData {
   // Default to a massive bounding box to prevent accidental pixel discards
   glm::vec4 clipRect = glm::vec4(0.0f, 0.0f, 16384.0f, 16384.0f);
 
-  float strokeThickness = 0.0f;
+  glm::vec4 strokeThickness = glm::vec4(0.0f);
   uint32_t shapeType = 0;
   uint32_t fillType = 0;
   uint32_t textureIndex = 0;
@@ -54,7 +54,7 @@ struct InstanceData {
   float blur = 0.0f;
   float scale = 1.0f;
   float rotation = 0.0f;
-  float pad0 = 0.0f;
+  float fontWeight = 400.0f;
 };
 
 struct Vertex {

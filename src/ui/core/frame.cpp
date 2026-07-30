@@ -1,8 +1,9 @@
 #include "ui/core/frame.h"
 #include "Vera/src/vera_windowing/core/app/Types.h"
-#include "avk/utils/ui/layout.h"
 #include "ui/animation/animation.h"
+#include "ui/core/gradientAtlas.h"
 #include "ui/internal/context.h"
+#include "ui/style/style.h"
 #include "ui/utils/clayUtils.h"
 #include "ui/utils/coreUtils.h"
 #include <cstdint>
@@ -19,10 +20,19 @@ bool beginFrame(VeraWindow *window) {
   if (session == nullptr || !session->canvas->isActive())
     return false;
 
+  // 1. Reset frame transient stacks
   uiState->computedStyleMap.clear();
   uiState->positioningContextStack.clear();
   uiState->cascadingStyleStack.clear();
 
+  // 2. Swap lifecycle history maps for zero-allocation state tracking
+  uiState->previousLifecycleMap = std::move(uiState->currentLifecycleMap);
+  uiState->currentLifecycleMap.clear();
+
+  // 3. Track focus edge transitions (focusGained / focusLost)
+  uiState->previousFocusedElementId = uiState->focusedElementId;
+
+  // 4. Update pointer state & delta timers
   setClayCursorState(uiState->pointerPos, uiState->pointerDown);
   calcFrameDeltaTime(session);
   atomic::AnimationManager::instance().update(session->lastDeltaTime);
@@ -114,6 +124,7 @@ void endFrame(VeraWindow *window) {
       glm::vec2 transformOrigin(0.5f, 0.5f);
       glm::vec2 translate(0.0f, 0.0f);
       std::vector<BoxShadow> shadows;
+      std::optional<atomic::Gradient> elementGradient;
 
       if (cmd->userData != nullptr) {
         auto *payload = static_cast<RenderPayload *>(cmd->userData);
@@ -123,11 +134,10 @@ void endFrame(VeraWindow *window) {
         transformOrigin = payload->transformOrigin;
         translate = payload->translate;
         shadows = payload->boxShadows;
+        elementGradient = payload->gradient;
       }
 
       auto submitShadow = [&](const BoxShadow &s) {
-        // 1. Calculate required quad expansion so the soft blur doesn't get cut
-        // off
         float expand =
             s.inset ? 0.0f : ((s.blur * 2.5f) + std::max(s.spread, 0.0f));
 
@@ -147,7 +157,6 @@ void endFrame(VeraWindow *window) {
                       std::round(shadowRect.z), std::round(shadowRect.w));
 
         instance.fillColorA = s.color;
-        // Pass offset, spread, AND quad expansion amount in fillColorB!
         instance.fillColorB =
             glm::vec4(s.offset.x, s.offset.y, s.spread, expand);
 
@@ -176,10 +185,20 @@ void endFrame(VeraWindow *window) {
           cmd->boundingBox, elementScale, elementRotation, transformOrigin,
           translate);
 
+      float absoluteRight = transformedRect.x + transformedRect.z; // x + width
+      float absoluteBottom =
+          transformedRect.y + transformedRect.w; // y + height
+
+      float snappedX = std::round(transformedRect.x);
+      float snappedY = std::round(transformedRect.y);
+      float snappedRight = std::round(absoluteRight);
+      float snappedBottom = std::round(absoluteBottom);
+
+      float snappedW = std::max(snappedRight - snappedX, 1.0f);
+      float snappedH = std::max(snappedBottom - snappedY, 1.0f);
+
       avk::InstanceData mainInstance{};
-      mainInstance.rectXYWH = glm::vec4(
-          std::round(transformedRect.x), std::round(transformedRect.y),
-          std::round(transformedRect.z), std::round(transformedRect.w));
+      mainInstance.rectXYWH = glm::vec4(snappedX, snappedY, snappedW, snappedH);
 
       mainInstance.fillColorA = glm::vec4(rectData->backgroundColor.r / 255.0f,
                                           rectData->backgroundColor.g / 255.0f,
@@ -191,7 +210,51 @@ void endFrame(VeraWindow *window) {
                                             rectData->cornerRadius.bottomRight);
       mainInstance.clipRect = activeClipRect;
       mainInstance.shapeType = 0;
-      mainInstance.fillType = 0;
+      mainInstance.fillType = 0; // Solid Default
+
+      // --- GRADIENT RESOLUTION (2-Stop Direct & Multi-Stop 1D Atlas) ---
+      if (elementGradient.has_value() &&
+          elementGradient->type != GradientType::Disabled) {
+        const auto &g = elementGradient.value();
+
+        if (g.stops.size() > 2) {
+          // Multi-stop gradient (3, 7, 20+ stops) -> Route to 1D Gradient
+          // Atlas!
+          uint32_t gradTexIdx =
+              atomic::GradientAtlasManager ::instance()
+                  .getOrCreateGradientTexture(uiState->context.get(), g);
+
+          mainInstance.fillType = 8; // 1D Gradient Atlas Fill
+          mainInstance.textureIndex = gradTexIdx;
+
+          if (g.type == atomic::GradientType::Linear) {
+            float rad = glm::radians(g.angleDegrees - 90.0f);
+            glm::vec2 dir(std::cos(rad), std::sin(rad));
+            mainInstance.gradientStart = glm::vec2(0.5f) - dir * 0.5f;
+            mainInstance.gradientEnd = glm::vec2(0.5f) + dir * 0.5f;
+          } else if (g.type == atomic::GradientType::Radial) {
+            mainInstance.gradientStart = g.center;
+            mainInstance.gradientEnd = g.center + g.radius;
+          }
+        } else if (g.stops.size() == 2) {
+          // Fast 2-Stop Gradient
+          if (g.type == atomic::GradientType::Linear) {
+            mainInstance.fillType = 1; // Linear
+            float rad = glm::radians(g.angleDegrees - 90.0f);
+            glm::vec2 dir(std::cos(rad), std::sin(rad));
+            mainInstance.gradientStart = glm::vec2(0.5f) - dir * 0.5f;
+            mainInstance.gradientEnd = glm::vec2(0.5f) + dir * 0.5f;
+          } else if (g.type == atomic::GradientType::Radial) {
+            mainInstance.fillType = 2; // Radial
+            mainInstance.gradientStart = g.center;
+            mainInstance.gradientEnd = g.center + g.radius;
+          }
+
+          mainInstance.fillColorA = g.stops[0].color;
+          mainInstance.fillColorB = g.stops[1].color;
+        }
+      }
+
       mainInstance.blur = elementBlur;
       mainInstance.scale = elementScale;
       mainInstance.rotation = elementRotation;
@@ -230,7 +293,9 @@ void endFrame(VeraWindow *window) {
           std::round(transformedRect.x), std::round(transformedRect.y),
           std::round(transformedRect.z), std::round(transformedRect.w));
 
-      instance.strokeThickness = static_cast<float>(borderData->width.top);
+      instance.strokeThickness = {
+          borderData->width.top, borderData->width.right,
+          borderData->width.bottom, borderData->width.left};
 
       instance.strokeColor =
           glm::vec4(borderData->color.r / 255.0f, borderData->color.g / 255.0f,
@@ -280,32 +345,45 @@ void endFrame(VeraWindow *window) {
         shadows = payload->boxShadows;
       }
 
+      auto submitImageShadow = [&](const BoxShadow &s) {
+        float expand =
+            s.inset ? 0.0f : ((s.blur * 2.5f) + std::max(s.spread, 0.0f));
+
+        Clay_BoundingBox expandedBox = cmd->boundingBox;
+        expandedBox.x -= expand;
+        expandedBox.y -= expand;
+        expandedBox.width += expand * 2.0f;
+        expandedBox.height += expand * 2.0f;
+
+        glm::vec4 shadowRect = getPivotTransformedCoords(
+            expandedBox, elementScale, elementRotation, transformOrigin,
+            translate + s.offset);
+
+        avk::InstanceData shadowInstance{};
+        shadowInstance.rectXYWH =
+            glm::vec4(std::round(shadowRect.x), std::round(shadowRect.y),
+                      std::round(shadowRect.z), std::round(shadowRect.w));
+
+        shadowInstance.fillColorA = s.color;
+        shadowInstance.fillColorB =
+            glm::vec4(s.offset.x, s.offset.y, s.spread, expand);
+        shadowInstance.borderRadius = glm::vec4(
+            imageData->cornerRadius.topLeft, imageData->cornerRadius.topRight,
+            imageData->cornerRadius.bottomLeft,
+            imageData->cornerRadius.bottomRight);
+        shadowInstance.clipRect = activeClipRect;
+        shadowInstance.shapeType = 0;
+        shadowInstance.fillType = s.inset ? 6 : 5;
+        shadowInstance.blur = s.blur;
+        shadowInstance.scale = elementScale;
+        shadowInstance.rotation = elementRotation;
+
+        uiState->renderer->submit(shadowInstance);
+      };
+
       for (auto it = shadows.rbegin(); it != shadows.rend(); ++it) {
         if (!it->inset) {
-          glm::vec4 shadowRect = getPivotTransformedCoords(
-              cmd->boundingBox, elementScale, elementRotation, transformOrigin,
-              translate + it->offset);
-
-          avk::InstanceData shadowInstance{};
-          shadowInstance.rectXYWH =
-              glm::vec4(std::round(shadowRect.x), std::round(shadowRect.y),
-                        std::round(shadowRect.z), std::round(shadowRect.w));
-
-          shadowInstance.fillColorA = it->color;
-          shadowInstance.fillColorB =
-              glm::vec4(it->offset.x, it->offset.y, it->spread, 0.0f);
-          shadowInstance.borderRadius = glm::vec4(
-              imageData->cornerRadius.topLeft, imageData->cornerRadius.topRight,
-              imageData->cornerRadius.bottomLeft,
-              imageData->cornerRadius.bottomRight);
-          shadowInstance.clipRect = activeClipRect;
-          shadowInstance.shapeType = 0;
-          shadowInstance.fillType = 5;
-          shadowInstance.blur = it->blur;
-          shadowInstance.scale = elementScale;
-          shadowInstance.rotation = elementRotation;
-
-          uiState->renderer->submit(shadowInstance);
+          submitImageShadow(*it);
         }
       }
 
@@ -371,7 +449,7 @@ void endFrame(VeraWindow *window) {
       instance.shapeType = 0;
       instance.fillType = 4;
       instance.textureIndex = textureIndex;
-      instance.strokeThickness = 0.0f;
+      instance.strokeThickness = glm::vec4(0.0f);
       instance.blur = elementBlur;
       instance.scale = elementScale;
       instance.rotation = elementRotation;
@@ -380,30 +458,7 @@ void endFrame(VeraWindow *window) {
 
       for (const auto &s : shadows) {
         if (s.inset) {
-          glm::vec4 shadowRect = getPivotTransformedCoords(
-              cmd->boundingBox, elementScale, elementRotation, transformOrigin,
-              translate + s.offset);
-
-          avk::InstanceData shadowInstance{};
-          shadowInstance.rectXYWH =
-              glm::vec4(std::round(shadowRect.x), std::round(shadowRect.y),
-                        std::round(shadowRect.z), std::round(shadowRect.w));
-
-          shadowInstance.fillColorA = s.color;
-          shadowInstance.fillColorB =
-              glm::vec4(s.offset.x, s.offset.y, s.spread, 0.0f);
-          shadowInstance.borderRadius = glm::vec4(
-              imageData->cornerRadius.topLeft, imageData->cornerRadius.topRight,
-              imageData->cornerRadius.bottomLeft,
-              imageData->cornerRadius.bottomRight);
-          shadowInstance.clipRect = activeClipRect;
-          shadowInstance.shapeType = 0;
-          shadowInstance.fillType = 6;
-          shadowInstance.blur = s.blur;
-          shadowInstance.scale = elementScale;
-          shadowInstance.rotation = elementRotation;
-
-          uiState->renderer->submit(shadowInstance);
+          submitImageShadow(s);
         }
       }
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
@@ -413,9 +468,12 @@ void endFrame(VeraWindow *window) {
         continue;
       }
 
-      float textOffset = 0.0f;
+      float fontSize = static_cast<float>(textData->fontSize);
+      [[maybe_unused]] float textOffset = 0.0f;
       float elementScale = 1.0f;
       float elementRotation = 0.0f;
+      float letterSpacing = 0.0f;
+      float fontWeight = 400.0f;
       glm::vec2 transformOrigin(0.5f, 0.5f);
       glm::vec2 translate(0.0f, 0.0f);
 
@@ -426,11 +484,27 @@ void endFrame(VeraWindow *window) {
         transformOrigin = payload->transformOrigin;
         translate = payload->translate;
         textOffset = payload->textOffset;
+        letterSpacing = payload->letterSpacing;
+        fontWeight = payload->fontWeight;
       }
 
       const avk::Font &font = *uiState->fonts[textData->fontId];
+      float baseFontSize = (font.getFontSize() > 0)
+                               ? static_cast<float>(font.getFontSize())
+                               : 32.0f;
+      float fontScale = (fontSize > 0.0f) ? (fontSize / baseFontSize) : 1.0f;
+
       float cursorX = cmd->boundingBox.x;
       float cursorY = cmd->boundingBox.y;
+
+      float fontAscent = font.getAscent(fontSize);
+      float fontLineHeight = font.getLineHeight(fontSize);
+
+      float rawBaselineY = cursorY +
+                           ((cmd->boundingBox.height - fontLineHeight) * 0.5f) +
+                           fontAscent;
+
+      float snappedBaselineY = std::floor(rawBaselineY + 3.5f);
 
       glm::vec4 textColor = glm::vec4(
           textData->textColor.r / 255.0f, textData->textColor.g / 255.0f,
@@ -447,44 +521,48 @@ void endFrame(VeraWindow *window) {
 
         const avk::Glyph &glyph = font.getGlyph(codepoint);
 
-        float posX = std::round(cursorX + glyph.bearing.x);
-        float posY = std::round(cursorY + (font.getAscent() - glyph.bearing.y) +
-                                textOffset);
-        float posW = std::round(glyph.size.x);
-        float posH = std::round(glyph.size.y);
+        float posX = std::floor(cursorX + (glyph.bearing.x * fontScale) + 0.5f);
+        float posY = snappedBaselineY - (glyph.bearing.y * fontScale);
+        float posW = std::floor(glyph.size.x * fontScale + 0.5f);
+        float posH = std::floor(glyph.size.y * fontScale + 0.5f);
 
-        glm::vec4 transformedGlyph = getPivotTransformedCoords(
+        glm::vec4 bounds = getPivotTransformedCoords(
             Clay_BoundingBox{posX, posY, posW, posH}, elementScale,
             elementRotation, transformOrigin, translate);
 
         avk::InstanceData instance{};
-        instance.rectXYWH = glm::vec4(
-            std::round(transformedGlyph.x), std::round(transformedGlyph.y),
-            std::round(transformedGlyph.z), std::round(transformedGlyph.w));
+        instance.rectXYWH =
+            glm::vec4(std::floor(bounds.x + 0.5f), std::floor(bounds.y + 0.5f),
+                      std::floor(bounds.z + 0.5f), std::floor(bounds.w + 0.5f));
         instance.borderRadius = glm::vec4(0.0f);
         instance.fillColorA = textColor;
         instance.uvBounds = glyph.uvBounds;
         instance.clipRect = activeClipRect;
-
         instance.shapeType = 0;
         instance.fillType = 3;
         instance.textureIndex = font.getTextureIndex();
-        instance.strokeThickness = 0.0f;
+        instance.strokeThickness = glm::vec4(0.0f);
         instance.blur = 0.0f;
         instance.scale = elementScale;
         instance.rotation = elementRotation;
+        instance.fontWeight = fontWeight;
 
         uiState->renderer->submit(instance);
 
-        cursorX += glyph.advance;
+        cursorX += (glyph.advance * fontScale) + letterSpacing;
       }
     }
   }
 
   session->canvas->endFrame(*uiState->renderer);
 
+  // 1. Wipe payload memory safely
   uiState->framePayloads.clear();
 
+  // 2. Run Garbage Collection on unmounted animation states
+  atomic::AnimationManager::instance().gc();
+
+  // 3. Reset input states
   uiState->capturedChars.clear();
   uiState->backspacePressed = false;
   uiState->enterPressed = false;

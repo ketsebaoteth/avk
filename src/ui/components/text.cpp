@@ -19,17 +19,24 @@ Interaction Text(const std::string &text, Modifier &&modifier) {
  */
 Interaction Text(const std::string &text, uint32_t fontId,
                  Modifier &&modifier) {
-  Clay_ElementId textId = utils::layout::getNextId("Text");
+  const auto &rawStyle = modifier.getStyle();
+  Clay_ElementId textId =
+      rawStyle.elementLabel.has_value()
+          ? utils::layout::getNextId(rawStyle.elementLabel.value().c_str())
+          : utils::layout::getNextId("Text");
   return Text(text, fontId, textId, std::move(modifier));
 }
 
 /**
- * @brief Core Text primitive resolving cascading style inheritance.
+ * @brief Core Text primitive resolving cascading style inheritance and
+ * multiline wrapped height.
  */
 Interaction Text(const std::string &text, uint32_t fontId,
                  Clay_ElementId textId, Modifier &&modifier) {
-  const auto &style = modifier.getStyle();
+  const auto &rawStyle = modifier.getStyle();
   auto *uiState = getUiState();
+
+  Style style = utils::layout::resolveTransitions(textId.id, rawStyle);
 
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
@@ -40,39 +47,18 @@ Interaction Text(const std::string &text, uint32_t fontId,
       (fontId != 0)
           ? fontId
           : (inherited.fontId != 0 ? inherited.fontId : getDefaultFontId());
-  glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(0.0f));
-  bg.a *= effectiveOpacity;
-  glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
+
+  avk::Font *font = getFont(finalFontId);
+  float baseFontSize = (font && font->getFontSize() > 0)
+                           ? static_cast<float>(font->getFontSize())
+                           : 32.0f;
+
+  float finalFontSize = style.fontSize.value_or(
+      inherited.fontSize > 0.0f ? inherited.fontSize : baseFontSize);
+
   glm::vec4 textColor = style.textColor.value_or(inherited.textColor);
   textColor.a *= effectiveOpacity;
   float textOffset = style.textOffset.value_or(inherited.textOffset);
-
-  avk::Font *font = getFont(finalFontId);
-  float fontHeight = font ? font->getLineHeight() : 18.0f;
-
-  Clay__OpenElementWithId(textId);
-
-  Clay_ElementDeclaration decl{};
-  decl.layout = {
-      .sizing = {.width = style.width.has_value()
-                              ? CLAY_SIZING_FIXED(style.width.value())
-                              : CLAY_SIZING_FIT(),
-                 .height = style.height.has_value()
-                               ? CLAY_SIZING_FIXED(style.height.value())
-                               : CLAY_SIZING_FIXED(fontHeight)},
-      .padding = {0, 0, 0, 0}};
-
-  decl.backgroundColor = {bg.r * 255.0f, bg.g * 255.0f, bg.b * 255.0f,
-                          bg.a * 255.0f};
-  decl.cornerRadius = {radius.x, radius.y, radius.z, radius.w};
-
-  utils::layout::applyStyleToLayout(decl, style);
-
-  auto *payload = utils::layout::createFramePayload(style, std::nullopt,
-                                                    std::nullopt, textOffset);
-  decl.userData = payload;
-
-  Clay__ConfigureOpenElement(decl);
 
   Clay_String allocatedString = copyStringToClayBuffer(text);
 
@@ -91,22 +77,24 @@ Interaction Text(const std::string &text, uint32_t fontId,
     }
   }
 
-  uint32_t nativeSize = font ? font->getFontSize() : 16;
+  auto *payload = utils::layout::createFramePayload(style, std::nullopt,
+                                                    std::nullopt, textOffset);
 
+  // Directly open Clay's Text Element (No redundant outer Div wrapper!)
   Clay_TextElementConfig config{};
   config.fontId = static_cast<uint16_t>(finalFontId);
-  config.fontSize = static_cast<uint16_t>(nativeSize);
+  config.fontSize = static_cast<uint16_t>(std::round(finalFontSize));
   config.textColor = {textColor.r * 255.0f, textColor.g * 255.0f,
                       textColor.b * 255.0f, textColor.a * 255.0f};
   config.textAlignment = clayTextAlign;
   config.userData = payload;
 
   Clay__OpenTextElement(allocatedString, config);
-  Clay__CloseElement();
 
   bool isHovered = false;
   Clay_ElementData elementData = Clay_GetElementData(textId);
   if (elementData.found) {
+    glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
     isHovered = utils::ui::isPointerOverRoundedBox(
         uiState->pointerPos, elementData.boundingBox, radius);
   }
@@ -124,13 +112,21 @@ Interaction Text(const std::string &text, uint32_t fontId,
   }
 
   if (uiState) {
+    ElementLifecycleState lifecycle{};
+    lifecycle.isMounted = true;
+    lifecycle.isHovered = isHovered;
+    lifecycle.isPressed = isPressed;
+    uiState->currentLifecycleMap[textId.id] = lifecycle;
+
     CascadingStyle resolved = inherited;
     resolved.textColor = textColor;
     resolved.textOffset = textOffset;
     resolved.fontId = finalFontId;
+    resolved.fontSize = finalFontSize;
     uiState->computedStyleMap[textId.id] = resolved;
   }
 
   return result;
 }
+
 } // namespace atomic

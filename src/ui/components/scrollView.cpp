@@ -15,7 +15,10 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
   const auto &style = modifier.getStyle();
   auto *uiState = getUiState();
 
-  Clay_ElementId scrollId = utils::layout::getNextId("ScrollView");
+  Clay_ElementId scrollId =
+      style.elementLabel.has_value()
+          ? utils::layout::getNextId(style.elementLabel.value().c_str())
+          : utils::layout::getNextId("ScrollView");
   Clay__OpenElementWithId(scrollId);
 
   auto &scrollState = uiState->scrollViewStates[scrollId.id];
@@ -76,10 +79,12 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
 
   if (isHovered && !scrollState.isDraggingY) {
     if (config.showVerticalBar && uiState->mouseWheelDeltaY != 0.0f) {
-      scrollState.targetScrollOffsetY -= uiState->mouseWheelDeltaY * 35.0f;
+      scrollState.targetScrollOffsetY -=
+          uiState->mouseWheelDeltaY * config.scrollSpeed;
     }
     if (config.showHorizontalBar && uiState->mouseWheelDeltaX != 0.0f) {
-      scrollState.targetScrollOffsetX -= uiState->mouseWheelDeltaX * 35.0f;
+      scrollState.targetScrollOffsetX -=
+          uiState->mouseWheelDeltaX * config.scrollSpeed;
     }
   }
 
@@ -166,7 +171,11 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
       barColor = config.scrollbarColorHover;
     }
 
+    // Stable, instance-unique label bypassing the auto-incrementing Div counter
+    std::string thumbLabel = "ScrollbarThumb_" + std::to_string(scrollId.id);
+
     Div(DefaultModifier()
+            .id(thumbLabel)
             .absolute()
             .parentId(scrollId.id)
             .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)

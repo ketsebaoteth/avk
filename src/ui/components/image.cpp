@@ -6,24 +6,29 @@
 namespace atomic {
 
 /**
- * @brief Renders a GPU texture image with CSS transforms and Object-Fit.
+ * @brief Renders a GPU texture image with CSS transforms, Object-Fit, and
+ * cascading opacity.
  */
-
 Interaction Image(Modifier &&modifier, uint32_t textureIndex,
                   const glm::vec4 &tint) {
-  const auto &style = modifier.getStyle();
+  const auto &rawStyle = modifier.getStyle();
   auto *uiState = getUiState();
+
+  Clay_ElementId imageId =
+      rawStyle.elementLabel.has_value()
+          ? utils::layout::getNextId(rawStyle.elementLabel.value().c_str())
+          : utils::layout::getNextId("Image");
+
+  Style style = utils::layout::resolveTransitions(imageId.id, rawStyle);
 
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
   float effectiveOpacity =
       inherited.inheritedOpacity * style.opacity.value_or(1.0f);
 
-  // Apply inherited opacity to texture tint
   glm::vec4 finalTint = tint;
   finalTint.a *= effectiveOpacity;
 
-  Clay_ElementId imageId = utils::layout::getNextId("Image");
   Clay__OpenElementWithId(imageId);
 
   glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(0.0f));
@@ -77,6 +82,12 @@ Interaction Image(Modifier &&modifier, uint32_t textureIndex,
   }
 
   if (uiState) {
+    ElementLifecycleState lifecycle{};
+    lifecycle.isMounted = true;
+    lifecycle.isHovered = isHovered;
+    lifecycle.isPressed = result.pressed;
+    uiState->currentLifecycleMap[imageId.id] = lifecycle;
+
     uiState->computedStyleMap[imageId.id] = uiState->getActiveCascadingStyle();
   }
 

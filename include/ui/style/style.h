@@ -1,10 +1,12 @@
 #pragma once
 #include "glm/glm.hpp"
+#include "ui/animation/animation.h"
 #include <cstdint>
 #include <optional>
 #include <vector>
 
 namespace atomic {
+
 /**
  * @brief Specifies CSS object-fit layout behaviors for images and textures.
  */
@@ -64,15 +66,70 @@ enum class AttachPoint : uint8_t {
   CenterRight
 };
 
+struct TransitionSpec {
+  float duration = 0.15f;
+  AnimationCurve curve = AnimationCurve::EaseOut();
+  bool enabled = false;
+};
+
+// -----------------------------------------------------------------------------
+// GRADIENT SYSTEM
+// -----------------------------------------------------------------------------
+
+/**
+ * @brief Color space interpolation mode for smooth non-muddy gradients.
+ */
+enum class ColorSpace : uint8_t { OKLab, LinearRGB, sRGB };
+
+/**
+ * @brief Gradient type models.
+ */
+enum class GradientType : uint8_t { Disabled, Linear, Radial, Conic };
+
+/**
+ * @brief Individual color stop at a normalized position (0.0 to 1.0).
+ */
+struct GradientStop {
+  glm::vec4 color = glm::vec4(1.0f);
+  float position = 0.0f; // Normalized 0.0f (0%) to 1.0f (100%)
+};
+
+/**
+ * @brief Comprehensive Gradient Configuration struct.
+ */
+struct Gradient {
+  GradientType type = GradientType::Disabled;
+  ColorSpace colorSpace =
+      ColorSpace::OKLab; // OKLab by default for vibrant, non-muddy midtones!
+
+  float angleDegrees = 180.0f; // Linear gradient direction (180deg = to bottom,
+                               // 90deg = to right)
+  glm::vec2 center =
+      glm::vec2(0.5f, 0.5f); // Radial gradient focal center (0.5, 0.5 = center)
+  glm::vec2 radius = glm::vec2(0.5f, 0.5f); // Radial gradient radius extent
+
+  std::vector<GradientStop> stops; // Unlimited color stops!
+};
+
 /**
  * @brief Comprehensive styling definition block backing fluent modifiers.
  */
 struct Style {
+  std::optional<std::string> elementLabel;
+
+  std::optional<float> fontWeight;
+  std::optional<float> fontSize;
+  std::optional<float> letterSpacing;
+  std::optional<float> lineHeight;
+  std::optional<uint32_t> fontId;
+
+  std::optional<TransitionSpec> transitionSpec;
   std::vector<BoxShadow> boxShadows;
   std::optional<glm::vec4> backgroundColor;
+  std::optional<Gradient> gradient; // <--- Flexible Gradient System!
   std::optional<glm::vec4> borderRadius;
   std::optional<glm::vec4> strokeColor;
-  std::optional<float> strokeThickness;
+  std::optional<glm::vec4> strokeThickness;
 
   std::optional<float> width;
   std::optional<float> height;
@@ -80,10 +137,15 @@ struct Style {
   std::optional<glm::vec4> textColor;
   std::optional<float> textOffset;
 
-  std::optional<uint16_t> padLeft;
-  std::optional<uint16_t> padRight;
-  std::optional<uint16_t> padTop;
-  std::optional<uint16_t> padBottom;
+  std::optional<float> padLeft;
+  std::optional<float> padRight;
+  std::optional<float> padTop;
+  std::optional<float> padBottom;
+
+  std::optional<float> marginLeft;
+  std::optional<float> marginRight;
+  std::optional<float> marginTop;
+  std::optional<float> marginBottom;
 
   std::optional<bool> pointerEvents;
   std::optional<bool> disabled;
