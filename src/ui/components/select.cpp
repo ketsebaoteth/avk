@@ -2,20 +2,20 @@
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
 #include "glm/ext/vector_float4.hpp"
-#include "ui/animation/animation.h"
 #include "ui/components.h"
 #include "ui/core/resources.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/utils/color.h"
+
 #include <algorithm>
 #include <string>
 
 namespace atomic {
 
 /**
- * @brief Interactive select dropdown menu with animated placement and style
- * cascading.
+ * @brief Interactive select dropdown menu with animated placement, hover
+ * states, and style cascading.
  */
-
 Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                    const std::vector<std::string> &options, uint32_t fontId,
                    DropdownPlacement placement) {
@@ -68,12 +68,17 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                                std::min(baseBg.b * 1.12f, 1.0f), baseBg.a);
   }
 
-  glm::vec4 animatedHeaderBg = AnimateVec4(
-      selectHeaderId.id + 0x1000, targetHeaderBg, 0.15f, Curves::AppleEaseOut);
+  using motion::MotionHandle;
+  auto &motionMgr = uiState->motionManager;
 
-  float chevronAlpha = AnimateFloat(selectHeaderId.id + 0x2000,
-                                    isOpen ? 1.0f : (isHovered ? 0.9f : 0.5f),
-                                    0.15f, Curves::AppleEaseOut);
+  glm::vec4 animatedHeaderBg = motionMgr.animate<glm::vec4>(
+      MotionHandle{selectHeaderId.id + 0x1000}, targetHeaderBg, 0.15f,
+      motion::AnimationCurve::EaseOut());
+
+  float chevronAlpha =
+      motionMgr.animate<float>(MotionHandle{selectHeaderId.id + 0x2000},
+                               isOpen ? 1.0f : (isHovered ? 0.9f : 0.5f), 0.15f,
+                               motion::AnimationCurve::EaseOut());
 
   Modifier headerStyle = std::move(modifier)
                              .background(animatedHeaderBg)
@@ -94,9 +99,9 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
   bool selectionChanged = false;
   bool anyOptionHovered = false;
 
-  float animProgress =
-      AnimateFloat(selectHeaderId.id + 0x50000000, isOpen ? 1.0f : 0.0f, 0.22f,
-                   Curves::AppleEaseOut);
+  float animProgress = motionMgr.animate<float>(
+      MotionHandle{selectHeaderId.id + 0x50000000}, isOpen ? 1.0f : 0.0f, 0.22f,
+      motion::AnimationCurve::EaseOut());
 
   if (animProgress > 0.001f) {
     constexpr float optionHeight = 32.0f;
@@ -173,8 +178,9 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
           targetOptBg = glm::vec4(1.0f, 1.0f, 1.0f, 0.07f * contentAlpha);
         }
 
-        glm::vec4 animatedOptBg = AnimateVec4(optionId.id + 0x3000, targetOptBg,
-                                              0.12f, Curves::AppleEaseOut);
+        glm::vec4 animatedOptBg = motionMgr.animate<glm::vec4>(
+            MotionHandle{optionId.id + 0x3000}, targetOptBg, 0.12f,
+            motion::AnimationCurve::EaseOut());
 
         Modifier optStyle = DefaultModifier()
                                 .background(animatedOptBg)

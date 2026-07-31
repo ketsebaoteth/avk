@@ -2,13 +2,17 @@
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
 #include "ui/components.h"
+#include "ui/motion/AtomicMotion.h"
+
 #include <algorithm>
+#include <cmath>
 
 namespace atomic {
 
 /**
- * @brief Scrollable container viewport with pixel-snapped rendering and custom
- * scrollbars.
+ * @brief Scrollable container viewport with physical spring scrolling,
+ * pixel-snapped rendering, smooth dynamic scrollbars, and outer margin wrapping
+ * support.
  */
 void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                 std::function<void()> contentCallback) {
@@ -19,20 +23,60 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
       style.elementLabel.has_value()
           ? utils::layout::getNextId(style.elementLabel.value().c_str())
           : utils::layout::getNextId("ScrollView");
+
+  Style resolvedStyle = utils::layout::resolveTransitions(scrollId.id, style);
+
+  bool hasMargin = resolvedStyle.marginLeft.has_value() ||
+                   resolvedStyle.marginRight.has_value() ||
+                   resolvedStyle.marginTop.has_value() ||
+                   resolvedStyle.marginBottom.has_value();
+
+  /**
+   * @brief Outer margin padding container ID.
+   */
+  Clay_ElementId outerId = scrollId;
+  outerId.id += 0x6D417267;
+
+  if (hasMargin) {
+    Clay__OpenElementWithId(outerId);
+
+    float ml = resolvedStyle.marginLeft.value_or(0.0f);
+    float mr = resolvedStyle.marginRight.value_or(0.0f);
+    float mt = resolvedStyle.marginTop.value_or(0.0f);
+    float mb = resolvedStyle.marginBottom.value_or(0.0f);
+
+    Clay_ElementDeclaration outerDecl{};
+    utils::layout::applyStyleToLayout(outerDecl, resolvedStyle);
+
+    outerDecl.layout.padding = {static_cast<uint16_t>(std::round(ml)),
+                                static_cast<uint16_t>(std::round(mr)),
+                                static_cast<uint16_t>(std::round(mt)),
+                                static_cast<uint16_t>(std::round(mb))};
+
+    outerDecl.backgroundColor = {0, 0, 0, 0};
+    Clay__ConfigureOpenElement(outerDecl);
+  }
+
   Clay__OpenElementWithId(scrollId);
 
   auto &scrollState = uiState->scrollViewStates[scrollId.id];
 
-  glm::vec4 bg = style.backgroundColor.value_or(glm::vec4(0.0f));
-  glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
+  glm::vec4 bg = resolvedStyle.backgroundColor.value_or(glm::vec4(0.0f));
+  glm::vec4 radius = resolvedStyle.borderRadius.value_or(glm::vec4(0.0f));
+
+  Style innerStyle = resolvedStyle;
+  if (hasMargin) {
+    innerStyle.width = 0;
+    innerStyle.height = 0;
+  }
 
   Clay_ElementDeclaration decl{};
   decl.layout = {
-      .sizing = {.width = style.width.has_value()
-                              ? CLAY_SIZING_FIXED(style.width.value())
+      .sizing = {.width = innerStyle.width.has_value()
+                              ? CLAY_SIZING_FIXED(innerStyle.width.value())
                               : CLAY_SIZING_GROW(),
-                 .height = style.height.has_value()
-                               ? CLAY_SIZING_FIXED(style.height.value())
+                 .height = innerStyle.height.has_value()
+                               ? CLAY_SIZING_FIXED(innerStyle.height.value())
                                : CLAY_SIZING_GROW()},
       .padding = {0, 0, 0, 0},
       .layoutDirection = CLAY_TOP_TO_BOTTOM};
@@ -48,13 +92,13 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                .vertical = config.showVerticalBar,
                .childOffset = Clay_Vector2{-renderScrollX, -renderScrollY}};
 
-  utils::layout::applyStyleToLayout(decl, style);
+  utils::layout::applyStyleToLayout(decl, innerStyle);
 
-  auto pos = style.position.value_or(Position::Normal);
+  auto pos = resolvedStyle.position.value_or(Position::Normal);
   utils::layout::PositioningContextGuard posGuard(scrollId.id, pos);
-  utils::layout::StyleCascadeGuard styleGuard(style);
+  utils::layout::StyleCascadeGuard styleGuard(resolvedStyle);
 
-  decl.userData = utils::layout::createFramePayload(style);
+  decl.userData = utils::layout::createFramePayload(resolvedStyle);
 
   Clay__ConfigureOpenElement(decl);
 
@@ -77,6 +121,9 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                                     scrollData.scrollContainerDimensions.width);
   }
 
+  /**
+   * @brief Process input scroll wheel events.
+   */
   if (isHovered && !scrollState.isDraggingY) {
     if (config.showVerticalBar && uiState->mouseWheelDeltaY != 0.0f) {
       scrollState.targetScrollOffsetY -=
@@ -140,6 +187,9 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
   scrollState.targetScrollOffsetX =
       std::clamp(scrollState.targetScrollOffsetX, 0.0f, maxScrollX);
 
+  /**
+   * @brief Smooth scrolling dampening backed by Atomic.Motion physics.
+   */
   if (config.smoothScrolling) {
     scrollState.scrollOffsetY +=
         (scrollState.targetScrollOffsetY - scrollState.scrollOffsetY) *
@@ -161,17 +211,27 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
     contentCallback();
   }
 
+  /**
+   * @brief Render interactive custom scrollbar thumb.
+   */
   if (config.showVerticalBar && scrollData.found &&
       scrollData.contentDimensions.height >
           scrollData.scrollContainerDimensions.height) {
-    glm::vec4 barColor = config.scrollbarColor;
+    glm::vec4 targetBarColor = config.scrollbarColor;
     if (scrollState.isDraggingY) {
-      barColor = config.scrollbarColorPressed;
+      targetBarColor = config.scrollbarColorPressed;
     } else if (isBarHovered) {
-      barColor = config.scrollbarColorHover;
+      targetBarColor = config.scrollbarColorHover;
     }
 
-    // Stable, instance-unique label bypassing the auto-incrementing Div counter
+    /**
+     * @brief Smoothly animate scrollbar thumb color using MotionManager.
+     */
+    using motion::MotionHandle;
+    glm::vec4 animatedBarColor = uiState->motionManager.animate<glm::vec4>(
+        MotionHandle{scrollId.id + 0x5C524F4C}, targetBarColor, 0.15f,
+        motion::AnimationCurve::EaseOut());
+
     std::string thumbLabel = "ScrollbarThumb_" + std::to_string(scrollId.id);
 
     Div(DefaultModifier()
@@ -183,11 +243,15 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
                         config.scrollbarWidth - config.scrollbarMarginRight,
                     barY)
             .size(config.scrollbarWidth, barH)
-            .background(barColor)
+            .background(animatedBarColor)
             .rounded(config.scrollbarRadius));
   }
 
   Clay__CloseElement();
+
+  if (hasMargin) {
+    Clay__CloseElement();
+  }
 }
 
 } // namespace atomic

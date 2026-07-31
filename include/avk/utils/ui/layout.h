@@ -1,20 +1,25 @@
 #pragma once
+
 #include "clay.h"
 #include "ui/internal/context.h"
 #include "ui/layout/computedLayout.h"
+#include "ui/motion/AtomicMotion.h"
+
 #include <cstring>
 #include <print>
 
 namespace utils::layout {
 
+/**
+ * @brief Handles Clay error logging output.
+ */
 inline void handleClayError(Clay_ErrorData error) {
   std::println("[Clay Layout]: {}", error.errorText.chars);
 }
 
 /**
- * @brief Generates an element ID. Anonymous primitives receive sequential frame
- * counters, while custom string labels automatically resolve to 100% stable
- * static IDs.
+ * @brief Generates a Clay element ID. Anonymous primitives receive sequential
+ * frame counters.
  */
 inline Clay_ElementId getNextId(const char *label) {
   if (std::strcmp(label, "Div") == 0 || std::strcmp(label, "Text") == 0 ||
@@ -45,6 +50,9 @@ inline Clay_ElementId getNextId(const char *name, uint32_t seed) {
   return Clay__HashString(str, seed);
 }
 
+/**
+ * @brief Guard managing relative and absolute positioning context stacks.
+ */
 struct PositioningContextGuard {
   bool active = false;
 
@@ -212,16 +220,31 @@ inline atomic::RenderPayload *createFramePayload(
     std::optional<float> rotation = std::nullopt, float textOffset = 0.0f,
     uint32_t textureIndex = 0, const glm::vec4 &tintColor = glm::vec4(1.0f)) {
   auto payload = std::make_unique<atomic::RenderPayload>();
+  auto *uiState = atomic::getUiState();
+
+  glm::vec2 totalTranslate(0.0f);
+  if (uiState && !uiState->cascadingStyleStack.empty()) {
+    /**
+     * @brief Reads inherited translation (which already includes local + parent
+     * translations) preventing double-addition bug.
+     */
+    totalTranslate = uiState->getActiveCascadingStyle().inheritedTranslate;
+  } else {
+    totalTranslate = style.translate.value_or(glm::vec2(0.0f, 0.0f));
+  }
 
   payload->scale = scale.value_or(style.scale.value_or(1.0f));
   payload->rotation = rotation.value_or(style.rotation.value_or(0.0f));
   payload->blur = style.blur.value_or(0.0f);
   payload->transformOrigin =
       style.transformOrigin.value_or(glm::vec2(0.5f, 0.5f));
-  payload->translate = style.translate.value_or(glm::vec2(0.0f, 0.0f));
+
+  // Correct 1-to-1 lockstep translation
+  payload->translate = totalTranslate;
+
   payload->textOffset = textOffset;
   payload->boxShadows = style.boxShadows;
-  payload->gradient = style.gradient; // <--- Map Gradient Payload!
+  payload->gradient = style.gradient;
 
   payload->textureIndex = textureIndex;
   payload->tintColor = tintColor;
@@ -229,13 +252,11 @@ inline atomic::RenderPayload *createFramePayload(
       style.uvBounds.value_or(glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
   payload->objectFit = style.objectFit.value_or(atomic::ObjectFit::Fill);
 
-  // Map Typography
   payload->fontSize = style.fontSize.value_or(16.0f);
   payload->letterSpacing = style.letterSpacing.value_or(0.0f);
   payload->fontWeight = style.fontWeight.value_or(400.0f);
 
   auto *ptr = payload.get();
-  auto *uiState = atomic::getUiState();
   if (uiState) {
     uiState->framePayloads.push_back(std::move(payload));
   }
@@ -253,6 +274,10 @@ struct StyleCascadeGuard {
 
       if (style.opacity.has_value()) {
         current.inheritedOpacity *= style.opacity.value();
+        modified = true;
+      }
+      if (style.translate.has_value()) {
+        current.inheritedTranslate += style.translate.value();
         modified = true;
       }
       if (style.fontSize.has_value()) {
@@ -359,6 +384,10 @@ inline atomic::CascadingStyle getComputedStyle(const char *label) {
   return getComputedStyle(getNextId(label).id);
 }
 
+/**
+ * @brief Evaluates dynamic immediate-mode transitions for element style
+ * properties using atomic::motion.
+ */
 inline atomic::Style resolveTransitions(uint32_t elementId,
                                         const atomic::Style &targetStyle) {
   if (!targetStyle.transitionSpec.has_value() ||
@@ -366,119 +395,151 @@ inline atomic::Style resolveTransitions(uint32_t elementId,
     return targetStyle;
   }
 
+  auto *uiState = atomic::getUiState();
+  if (!uiState) {
+    return targetStyle;
+  }
+
   const auto &spec = targetStyle.transitionSpec.value();
   atomic::Style resolved = targetStyle;
 
+  using atomic::motion::MotionHandle;
+
   if (targetStyle.backgroundColor.has_value()) {
-    resolved.backgroundColor = atomic::AnimateVec4(
-        elementId + 0x10000, targetStyle.backgroundColor.value(), spec.duration,
-        spec.curve);
+    resolved.backgroundColor = uiState->motionManager.animate<glm::vec4>(
+        MotionHandle{elementId + 0x10000}, targetStyle.backgroundColor.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.textColor.has_value()) {
-    resolved.textColor =
-        atomic::AnimateVec4(elementId + 0x20000, targetStyle.textColor.value(),
-                            spec.duration, spec.curve);
+    resolved.textColor = uiState->motionManager.animate<glm::vec4>(
+        MotionHandle{elementId + 0x20000}, targetStyle.textColor.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.strokeColor.has_value()) {
-    resolved.strokeColor = atomic::AnimateVec4(elementId + 0x30000,
-                                               targetStyle.strokeColor.value(),
-                                               spec.duration, spec.curve);
+    resolved.strokeColor = uiState->motionManager.animate<glm::vec4>(
+        MotionHandle{elementId + 0x30000}, targetStyle.strokeColor.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.scale.has_value()) {
-    resolved.scale =
-        atomic::AnimateFloat(elementId + 0x40000, targetStyle.scale.value(),
-                             spec.duration, spec.curve);
+    resolved.scale = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x40000}, targetStyle.scale.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.opacity.has_value()) {
-    resolved.opacity =
-        atomic::AnimateFloat(elementId + 0x50000, targetStyle.opacity.value(),
-                             spec.duration, spec.curve);
+    resolved.opacity = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x50000}, targetStyle.opacity.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.rotation.has_value()) {
-    resolved.rotation =
-        atomic::AnimateFloat(elementId + 0x60000, targetStyle.rotation.value(),
-                             spec.duration, spec.curve);
+    resolved.rotation = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x60000}, targetStyle.rotation.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.strokeThickness.has_value()) {
-    resolved.strokeThickness = atomic::AnimateVec4(
-        elementId + 0x70000, targetStyle.strokeThickness.value(), spec.duration,
-        spec.curve);
+    resolved.strokeThickness = uiState->motionManager.animate<glm::vec4>(
+        MotionHandle{elementId + 0x70000}, targetStyle.strokeThickness.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.textOffset.has_value()) {
-    resolved.textOffset = atomic::AnimateFloat(elementId + 0x80000,
-                                               targetStyle.textOffset.value(),
-                                               spec.duration, spec.curve);
+    resolved.textOffset = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x80000}, targetStyle.textOffset.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.blur.has_value()) {
-    resolved.blur =
-        atomic::AnimateFloat(elementId + 0x90000, targetStyle.blur.value(),
-                             spec.duration, spec.curve);
+    resolved.blur = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x90000}, targetStyle.blur.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.translate.has_value()) {
-    float tx =
-        atomic::AnimateFloat(elementId + 0xA0000, targetStyle.translate->x,
-                             spec.duration, spec.curve);
-    float ty =
-        atomic::AnimateFloat(elementId + 0xB0000, targetStyle.translate->y,
-                             spec.duration, spec.curve);
+    float tx = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0xA0000}, targetStyle.translate->x,
+        spec.duration, spec.curve);
+    float ty = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0xB0000}, targetStyle.translate->y,
+        spec.duration, spec.curve);
     resolved.translate = glm::vec2(tx, ty);
   }
   if (targetStyle.offset.has_value()) {
-    float ox = atomic::AnimateFloat(elementId + 0xC0000, targetStyle.offset->x,
-                                    spec.duration, spec.curve);
-    float oy = atomic::AnimateFloat(elementId + 0xD0000, targetStyle.offset->y,
-                                    spec.duration, spec.curve);
+    float ox = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0xC0000}, targetStyle.offset->x, spec.duration,
+        spec.curve);
+    float oy = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0xD0000}, targetStyle.offset->y, spec.duration,
+        spec.curve);
     resolved.offset = glm::vec2(ox, oy);
   }
   if (targetStyle.width.has_value()) {
-    resolved.width =
-        atomic::AnimateFloat(elementId + 0xE0000, targetStyle.width.value(),
-                             spec.duration, spec.curve);
+    resolved.width = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0xE0000}, targetStyle.width.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.height.has_value()) {
-    resolved.height =
-        atomic::AnimateFloat(elementId + 0xF0000, targetStyle.height.value(),
-                             spec.duration, spec.curve);
+    resolved.height = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0xF0000}, targetStyle.height.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.fontSize.has_value()) {
-    resolved.fontSize =
-        atomic::AnimateFloat(elementId + 0x100000, targetStyle.fontSize.value(),
-                             spec.duration, spec.curve);
+    resolved.fontSize = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x100000}, targetStyle.fontSize.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.letterSpacing.has_value()) {
-    resolved.letterSpacing = atomic::AnimateFloat(
-        elementId + 0x110000, targetStyle.letterSpacing.value(), spec.duration,
-        spec.curve);
+    resolved.letterSpacing = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x110000}, targetStyle.letterSpacing.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.fontWeight.has_value()) {
-    resolved.fontWeight = atomic::AnimateFloat(elementId + 0x120000,
-                                               targetStyle.fontWeight.value(),
-                                               spec.duration, spec.curve);
+    resolved.fontWeight = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x120000}, targetStyle.fontWeight.value(),
+        spec.duration, spec.curve);
   }
   if (targetStyle.lineHeight.has_value()) {
-    resolved.lineHeight = atomic::AnimateFloat(elementId + 0x130000,
-                                               targetStyle.lineHeight.value(),
-                                               spec.duration, spec.curve);
-  }
-
-  if (targetStyle.padLeft.has_value()) {
-    resolved.padLeft = atomic::AnimateFloat(
-        elementId + 0x140000, static_cast<float>(targetStyle.padLeft.value()),
+    resolved.lineHeight = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x130000}, targetStyle.lineHeight.value(),
         spec.duration, spec.curve);
+  }
+  if (targetStyle.padLeft.has_value()) {
+    resolved.padLeft = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x140000},
+        static_cast<float>(targetStyle.padLeft.value()), spec.duration,
+        spec.curve);
   }
   if (targetStyle.padRight.has_value()) {
-    resolved.padRight = atomic::AnimateFloat(
-        elementId + 0x150000, static_cast<float>(targetStyle.padRight.value()),
-        spec.duration, spec.curve);
+    resolved.padRight = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x150000},
+        static_cast<float>(targetStyle.padRight.value()), spec.duration,
+        spec.curve);
   }
   if (targetStyle.padTop.has_value()) {
-    resolved.padTop = atomic::AnimateFloat(
-        elementId + 0x160000, static_cast<float>(targetStyle.padTop.value()),
-        spec.duration, spec.curve);
+    resolved.padTop = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x160000},
+        static_cast<float>(targetStyle.padTop.value()), spec.duration,
+        spec.curve);
   }
   if (targetStyle.padBottom.has_value()) {
-    resolved.padBottom = atomic::AnimateFloat(
-        elementId + 0x170000, static_cast<float>(targetStyle.padBottom.value()),
+    resolved.padBottom = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x170000},
+        static_cast<float>(targetStyle.padBottom.value()), spec.duration,
+        spec.curve);
+  }
+  if (targetStyle.marginLeft.has_value()) {
+    resolved.marginLeft = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x180000}, targetStyle.marginLeft.value(),
+        spec.duration, spec.curve);
+  }
+  if (targetStyle.marginRight.has_value()) {
+    resolved.marginRight = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x190000}, targetStyle.marginRight.value(),
+        spec.duration, spec.curve);
+  }
+  if (targetStyle.marginTop.has_value()) {
+    resolved.marginTop = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x1A0000}, targetStyle.marginTop.value(),
+        spec.duration, spec.curve);
+  }
+  if (targetStyle.marginBottom.has_value()) {
+    resolved.marginBottom = uiState->motionManager.animate<float>(
+        MotionHandle{elementId + 0x1B0000}, targetStyle.marginBottom.value(),
         spec.duration, spec.curve);
   }
 
@@ -486,20 +547,19 @@ inline atomic::Style resolveTransitions(uint32_t elementId,
     std::vector<atomic::BoxShadow> animatedShadows;
     for (size_t i = 0; i < targetStyle.boxShadows.size(); ++i) {
       atomic::BoxShadow s = targetStyle.boxShadows[i];
-
-      uint32_t shadowId =
+      const uint32_t shadowBase =
           elementId + 0x200000 + (static_cast<uint32_t>(i) * 0x1000);
 
-      s.color =
-          atomic::AnimateVec4(shadowId + 1, s.color, spec.duration, spec.curve);
-      s.offset.x = atomic::AnimateFloat(shadowId + 2, s.offset.x, spec.duration,
-                                        spec.curve);
-      s.offset.y = atomic::AnimateFloat(shadowId + 3, s.offset.y, spec.duration,
-                                        spec.curve);
-      s.blur =
-          atomic::AnimateFloat(shadowId + 4, s.blur, spec.duration, spec.curve);
-      s.spread = atomic::AnimateFloat(shadowId + 5, s.spread, spec.duration,
-                                      spec.curve);
+      s.color = uiState->motionManager.animate<glm::vec4>(
+          MotionHandle{shadowBase + 1}, s.color, spec.duration, spec.curve);
+      s.offset.x = uiState->motionManager.animate<float>(
+          MotionHandle{shadowBase + 2}, s.offset.x, spec.duration, spec.curve);
+      s.offset.y = uiState->motionManager.animate<float>(
+          MotionHandle{shadowBase + 3}, s.offset.y, spec.duration, spec.curve);
+      s.blur = uiState->motionManager.animate<float>(
+          MotionHandle{shadowBase + 4}, s.blur, spec.duration, spec.curve);
+      s.spread = uiState->motionManager.animate<float>(
+          MotionHandle{shadowBase + 5}, s.spread, spec.duration, spec.curve);
 
       animatedShadows.push_back(s);
     }

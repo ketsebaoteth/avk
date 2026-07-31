@@ -351,7 +351,7 @@ inline Interaction CodeBlock(const std::string &code,
     // 1. macOS Titlebar Header
     Div(DefaultModifier()
             .background(theme.titlebarBg)
-            .padding(20, 12)
+            .padding(40, 12)
             .widthGrow()
             .center(),
         [&]() {

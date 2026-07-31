@@ -1,20 +1,28 @@
 #include "avk/utils/ui/layout.h"
 #include "core/app/App.h"
 #include "core/app/Types.h"
-#include "ui/animation/animation.h"
 #include "ui/components.h"
 #include "ui/core/frame.h"
 #include "ui/core/resources.h"
 #include "ui/generated/lucideIcons.generated.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/style/modifier.h"
 #include "ui/style/style.h"
 #include "ui/utils/color.h"
 #include "ui/utils/extraComponents.h"
+
+// Modular documentation headers
+#include "docs/animation.h"
+#include "docs/button.h"
+#include "docs/div.h"
+
 #include <print>
 #include <string>
 #include <vector>
 
-// History navigation state manager ("React at home" router state)
+/**
+ * @brief History navigation state manager ("React at home" router state).
+ */
 struct DocNavigation {
   std::vector<std::string> history = {"buttonTab"};
   size_t pointer = 0;
@@ -39,78 +47,11 @@ struct DocNavigation {
       pointer++;
   }
 
-  std::string current() const { return history[pointer]; }
-
-  bool canBack() const { return pointer > 0; }
-  bool canForward() const { return pointer < history.size() - 1; }
+  [[nodiscard]] std::string current() const { return history[pointer]; }
+  [[nodiscard]] bool canBack() const { return pointer > 0; }
+  [[nodiscard]] bool canForward() const { return pointer < history.size() - 1; }
 };
 
-inline void MacosWindow(const std::function<void()> &content,
-                        std::string title) {
-  using namespace atomic;
-
-  Div(DefaultModifier()
-          .widthGrow()
-          .margin(0, 40)
-          .column()
-          .background("#ffffff"_hex)
-          .border(Colors::gray[100], 1)
-          .rounded(10.0f),
-      [&]() {
-        Div(DefaultModifier().widthGrow().border(Colors::gray[100],
-                                                 {0.0f, 0.0f, 0.0f, 1.0f}),
-            [&]() {
-              Div(DefaultModifier()
-                      .row()
-                      .alignY(AlignmentY::Center)
-                      .widthGrow()
-                      .padding(0, 24)
-                      .gap(8),
-                  [&]() {
-                    Div(DefaultModifier()
-                            .gap(26)
-                            .alignY(AlignmentY::Center)
-                            .margin(30, 0),
-                        [&]() {
-                          Div([]() {
-                            Div(DefaultModifier()
-                                    .size(12, 12)
-                                    .rounded(6.0f)
-                                    .background("#ff5f56"_hex));
-                            Div(DefaultModifier()
-                                    .size(12, 12)
-                                    .rounded(6.0f)
-                                    .background("#ffbd2e"_hex));
-                            Div(DefaultModifier()
-                                    .size(12, 12)
-                                    .rounded(6.0f)
-                                    .background("#27c93f"_hex));
-                          });
-                          Text(title, DefaultModifier()
-                                          .fontSize(12)
-                                          .fontWeight(400)
-                                          .color(Colors::gray[300]));
-                        });
-                  });
-            });
-
-        Div(DefaultModifier()
-                .widthGrow()
-                .heightGrow()
-                .alignX(AlignmentX::Center)
-                .alignY(AlignmentY::Center)
-                .padding(200),
-            [&]() {
-              if (content) {
-                content();
-              }
-            });
-      });
-}
-
-// Reusable component helper using the button interaction struct's .clicked
-// property
-// Updated helper taking an ID prefix
 void drawDocHeader(const std::string &title, const std::string &subtitle,
                    DocNavigation &nav, std::string &activeTab,
                    const std::string &idPrefix) {
@@ -123,11 +64,9 @@ void drawDocHeader(const std::string &title, const std::string &subtitle,
                       Colors::black[1000]));
       Div(DefaultModifier().widthGrow());
 
-      // Unique ID per tab using the prefix
       std::string backId = idPrefix + "_goBackBtn";
       std::string fwdId = idPrefix + "_goForwardBtn";
 
-      // Back Button with Interaction Check
       Toast(
           [&]() {
             if (Button(DefaultModifier().id(backId),
@@ -140,7 +79,6 @@ void drawDocHeader(const std::string &title, const std::string &subtitle,
           },
           [&]() { Text("Go back to prev page"); });
 
-      // Forward Button with Interaction Check
       Toast(
           [&]() {
             if (Button(DefaultModifier().id(fwdId),
@@ -158,92 +96,11 @@ void drawDocHeader(const std::string &title, const std::string &subtitle,
   });
 }
 
-void drawButtonTab(DocNavigation &nav, std::string &activeTab) {
-  using namespace atomic;
-  using namespace atomicComponents;
-  using namespace atomic::extras;
-
-  Column(DefaultModifier().gap(24).widthGrow(), [&]() {
-    drawDocHeader(
-        "The Button",
-        "At its core, a Button component is an interactive UI primitive "
-        "designed to translate a physical user intent into a digital action.",
-        nav, activeTab, "buttonTab");
-
-    // 2. Default Button Example
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
-      Text("Default Button",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
-               Colors::black[900]));
-      MacosWindow(
-          []() {
-            Button(DefaultModifier().id("defaultButtonInstance"), [&]() {
-              Text("Button", DefaultModifier().fontSize(13).fontWeight(500));
-            });
-          },
-          "Default button example");
-
-      CodeBlock(
-          "Button(DefaultModifier().id(\"defaultButtonInstance\"), [&]() {\n"
-          "    Text(\"Button\", "
-          "DefaultModifier().fontSize(13).fontWeight(500));\n"
-          "});",
-          "cpp");
-    });
-
-    // 3. Button with Icon & Text Content
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
-      Text("Icon & Text Composition",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
-               Colors::black[900]));
-      Text("Buttons accept custom layout children via content lambdas, "
-           "allowing you to compose icons and text seamlessly inside a Row.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
-
-      MacosWindow(
-          []() {
-            Button(DefaultModifier().id("iconTextButtonInstance"), [&]() {
-              Row(DefaultModifier().gap(8).center(), [&]() {
-                Icon(LucideIcon::Sparkles,
-                     DefaultModifier().size(14, 14).color(Colors::black[800]));
-                Text("Generate Asset",
-                     DefaultModifier().fontSize(13).fontWeight(500));
-              });
-            });
-          },
-          "Button with custom content layout");
-
-      CodeBlock(
-          "Button(DefaultModifier().id(\"iconTextButtonInstance\"), [&]() {\n"
-          "    Row(DefaultModifier().gap(8).center(), [&]() {\n"
-          "        Icon(LucideIcon::Sparkles, DefaultModifier().size(14, "
-          "14).color(Colors::black[800]));\n"
-          "        Text(\"Generate Asset\", "
-          "DefaultModifier().fontSize(13).fontWeight(500));\n"
-          "    });\n"
-          "});",
-          "cpp");
-    });
-  });
-}
-
-void drawDivTab(DocNavigation &nav, std::string &activeTab) {
-  using namespace atomic;
-  using namespace atomicComponents;
-
-  Column(DefaultModifier().gap(24).widthGrow(), [&]() {
-    drawDocHeader("The Div",
-                  "A foundational layout primitive used to structure and space "
-                  "child elements in flexible column or row arrangements.",
-                  nav, activeTab, "divTab");
-  });
-}
-
 void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
   using namespace atomic;
   using namespace atomicComponents;
 
-  (void)banner; // Silence unused warning if banner isn't rendered here yet
+  (void)banner;
 
   auto width = static_cast<float>(getWidth(window));
   auto height = static_cast<float>(getHeight(window));
@@ -252,6 +109,9 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
   static DocNavigation docNav;
 
   Row(DefaultModifier().background("#ffffff"_hex).size(width, height), [&]() {
+    // -------------------------------------------------------------------------
+    // Sidebar Navigation
+    // -------------------------------------------------------------------------
     Div(DefaultModifier()
             .heightGrow()
             .padding(30, 50)
@@ -270,7 +130,7 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
                                               {Colors::transparent, 0.8f},
                                           }));
 
-          Text("Gallary", DefaultModifier().fontSize(20).fontWeight(600).color(
+          Text("Gallery", DefaultModifier().fontSize(20).fontWeight(600).color(
                               "#000000"_hex));
           TextInput(searchInput, "search ...",
                     DefaultModifier().id("searchField").width(500));
@@ -286,30 +146,45 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
                   activeTab = "divTab";
                   docNav.push("divTab");
                 }
+                if (TabButton("animationTab", "Animation Engine", activeTab)) {
+                  activeTab = "animationTab";
+                  docNav.push("animationTab");
+                }
               });
         });
 
-    ScrollView(DefaultModifier().heightGrow().id("DocsScrollView").widthGrow(),
-               [&]() {
-                 Div(DefaultModifier()
-                         .padding(200, 150)
-                         .alignX(AlignmentX::Center)
-                         .column()
-                         .widthGrow()
-                         .heightGrow(),
-                     [&]() {
-                       if (activeTab == "buttonTab") {
-                         drawButtonTab(docNav, activeTab);
-                       } else if (activeTab == "divTab") {
-                         drawDivTab(docNav, activeTab);
-                       }
-                     });
-               });
+    // -------------------------------------------------------------------------
+    // Documentation Content Viewport
+    // -------------------------------------------------------------------------
+    ScrollView(
+        DefaultModifier().heightGrow().id("DocsScrollView").widthGrow(), [&]() {
+          Div(DefaultModifier()
+                  .padding(200, 150)
+                  .alignX(AlignmentX::Center)
+                  .column()
+                  .widthGrow()
+                  .heightGrow(),
+              [&]() {
+                auto headerBinder = [&](const std::string &title,
+                                        const std::string &subtitle) {
+                  drawDocHeader(title, subtitle, docNav, activeTab, activeTab);
+                };
+
+                if (activeTab == "buttonTab") {
+                  atomic::docs::drawButtonDoc(headerBinder);
+                } else if (activeTab == "divTab") {
+                  atomic::docs::drawDivDoc(headerBinder);
+                } else if (activeTab == "animationTab") {
+                  atomic::docs::drawAnimationDoc(headerBinder);
+                }
+              });
+        });
   });
 }
 
 int main() {
-  VeraApp app(VeraAppInfo{});
+  VeraApp app(VeraAppInfo{.enablePlatformDebugging = false,
+                          .preferedLinuxProtocol = VeraLinuxProtocol::Wayland});
 
   auto windowResult = app.createWindow({.width = 800,
                                         .height = 600,
@@ -346,7 +221,6 @@ int main() {
 
         atomic::resizeWindow(window, newWidth, newHeight);
 
-        // Fixed the duplicate .maximizeButton designation to .minimizeButton
         window->setTitlebarHitTestRegions(
             {.dragRegion = VeraRect{0, 0, newWidth, 30},
              .minimizeButton = VeraRect{newWidth - 60, 5, 30, 20},

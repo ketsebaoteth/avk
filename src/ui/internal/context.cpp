@@ -2,6 +2,7 @@
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
 #include "core/app/App.h"
+#include "core/app/Types.h"
 #include "ui/core/resources.h"
 #include "ui/utils/clayUtils.h"
 #include <iostream>
@@ -192,6 +193,12 @@ void registerWindow(VeraWindow *window) {
         g_uiState->rightArrowPressed = true;
       } else if (key == VeraKey::ALower && g_uiState->ctrlPressed) {
         g_uiState->selectAll = true;
+      } else if (key == VeraKey::CLower && g_uiState->ctrlPressed) {
+        g_uiState->copyTriggered = true;
+      } else if (key == VeraKey::XLower && g_uiState->ctrlPressed) {
+        g_uiState->cutTriggered = true;
+      } else if (key == VeraKey::VLower && g_uiState->ctrlPressed) {
+        g_uiState->pasteTriggered = true;
       }
     }
   });

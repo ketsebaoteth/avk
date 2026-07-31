@@ -1,12 +1,10 @@
-#include "avk/utils/ui/layout.h"
-#include "ui/animation/animation.h"
 #include "ui/components.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/utils/color.h"
+
 #include <algorithm>
 
 namespace atomic {
-
-// In src/ui/components/button.cpp:
 
 Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   auto *uiState = getUiState();
@@ -22,8 +20,9 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   bool wasHovered = !isDisabled && isHovered(btnId);
   bool wasPressed = !isDisabled && isPressed(btnId);
 
-  // shadcn default colors: Dark Zinc (#18181b) -> Hover (#27272a) -> Active
-  // (#09090b)
+  /**
+   * @brief Default Button Colors: Base -> Hover -> Active (Pressed)
+   */
   glm::vec4 baseBg = rawStyle.backgroundColor.value_or("#ffffff"_hex);
   glm::vec4 hoverBg = glm::vec4(std::min(baseBg.r * 0.93f, 1.0f),
                                 std::min(baseBg.g * 0.93f, 1.0f),
@@ -57,7 +56,8 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
     btnStyle = std::move(btnStyle).color(Colors::black[900]);
 
   if (!rawStyle.transitionSpec.has_value()) {
-    btnStyle = std::move(btnStyle).transition(0.5f, Curves::AppleEaseOut);
+    btnStyle = std::move(btnStyle).transition(
+        0.15f, motion::AnimationCurve::EaseOut());
   }
 
   Interaction result = Div(std::move(btnStyle), content);

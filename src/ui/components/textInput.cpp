@@ -4,13 +4,18 @@
 #include "ui/components.h"
 #include "ui/core/resources.h"
 #include "ui/internal/context.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/utils/color.h"
+
+#include <algorithm>
+#include <chrono>
+#include <concepts>
+#include <iostream>
+#include <ostream>
+#include <vector>
 
 namespace {
 
-/**
- * @brief Returns byte length of a UTF-8 leading character.
- */
 int getUtf8CharLength(unsigned char c) {
   if (c < 0x80)
     return 1;
@@ -23,9 +28,6 @@ int getUtf8CharLength(unsigned char c) {
   return 1;
 }
 
-/**
- * @brief Decrements byte index to start of previous UTF-8 codepoint.
- */
 uint32_t getPreviousCharIndex(const std::string &str, uint32_t index) {
   if (index == 0)
     return 0;
@@ -36,18 +38,12 @@ uint32_t getPreviousCharIndex(const std::string &str, uint32_t index) {
   return idx;
 }
 
-/**
- * @brief Increments byte index to start of next UTF-8 codepoint.
- */
 uint32_t getNextCharIndex(const std::string &str, uint32_t index) {
   if (index >= str.size())
     return static_cast<uint32_t>(str.size());
   return index + getUtf8CharLength(static_cast<unsigned char>(str[index]));
 }
 
-/**
- * @brief Returns byte index of previous word boundary.
- */
 uint32_t getPreviousWordIndex(const std::string &str, uint32_t index) {
   if (index == 0)
     return 0;
@@ -69,9 +65,6 @@ uint32_t getPreviousWordIndex(const std::string &str, uint32_t index) {
   return 0;
 }
 
-/**
- * @brief Returns byte index of next word boundary.
- */
 uint32_t getNextWordIndex(const std::string &str, uint32_t index) {
   uint32_t len = static_cast<uint32_t>(str.size());
   if (index >= len)
@@ -92,9 +85,31 @@ uint32_t getNextWordIndex(const std::string &str, uint32_t index) {
   return len;
 }
 
-/**
- * @brief Inserts a Unicode codepoint at cursor byte offset.
- */
+uint32_t getWordEndIndex(const std::string &str, uint32_t index) {
+  uint32_t len = static_cast<uint32_t>(str.size());
+  if (index >= len)
+    return len;
+
+  uint32_t idx = index;
+  // Scan forward until we hit whitespace or punctuation (end of current word)
+  while (idx < len) {
+    char c = str[idx];
+    if (c == ' ' || c == '\t' || c == ',' || c == '.')
+      break;
+    idx = getNextCharIndex(str, idx);
+  }
+  return idx;
+}
+size_t getCodepointCount(const std::string &str) {
+  size_t count = 0;
+  uint32_t idx = 0;
+  while (idx < str.size()) {
+    idx = getNextCharIndex(str, idx);
+    count++;
+  }
+  return count;
+}
+
 void appendUtf8(std::string &str, uint32_t codepoint, uint32_t &cursorBytePos) {
   std::string temp;
   if (codepoint < 0x80) {
@@ -116,22 +131,78 @@ void appendUtf8(std::string &str, uint32_t codepoint, uint32_t &cursorBytePos) {
   cursorBytePos += static_cast<uint32_t>(temp.size());
 }
 
-/**
- * @brief Determines text character index corresponding to relative mouse pixel
- * position.
- */
-uint32_t findWhereCursorLanded(const std::string &textBuffer, avk::Font *font,
-                               float relativeMouseX, float fontSize) {
-  if (textBuffer.empty() || !font || relativeMouseX <= 0.0f) {
+std::vector<uint32_t> decodeUtf8String(const std::string &str) {
+  std::vector<uint32_t> codepoints;
+  uint32_t idx = 0;
+  while (idx < str.size()) {
+    uint32_t cp = 0;
+    unsigned char c = static_cast<unsigned char>(str[idx]);
+    int len = getUtf8CharLength(c);
+
+    if (len == 1) {
+      cp = c;
+    } else if (len == 2 && idx + 1 < str.size()) {
+      cp =
+          ((c & 0x1F) << 6) | (static_cast<unsigned char>(str[idx + 1]) & 0x3F);
+    } else if (len == 3 && idx + 2 < str.size()) {
+      cp = ((c & 0x0F) << 12) |
+           ((static_cast<unsigned char>(str[idx + 1]) & 0x3F) << 6) |
+           (static_cast<unsigned char>(str[idx + 2]) & 0x3F);
+    } else if (len == 4 && idx + 3 < str.size()) {
+      cp = ((c & 0x07) << 18) |
+           ((static_cast<unsigned char>(str[idx + 1]) & 0x3F) << 12) |
+           ((static_cast<unsigned char>(str[idx + 2]) & 0x3F) << 6) |
+           (static_cast<unsigned char>(str[idx + 3]) & 0x3F);
+    }
+
+    if (cp != 0) {
+      codepoints.push_back(cp);
+    }
+    idx += len;
+  }
+  return codepoints;
+}
+
+bool validateChar(uint32_t codepoint, const std::string &text, uint32_t pos,
+                  const atomic::TextConfig &config) {
+  using namespace atomic;
+  if (config.maxLength > 0 && getCodepointCount(text) >= config.maxLength) {
+    return false;
+  }
+
+  switch (config.type) {
+  case TextInputType::NumberOnly:
+    return (codepoint >= '0' && codepoint <= '9') || codepoint == '.' ||
+           codepoint == '-';
+  case TextInputType::AlphaOnly:
+    return (codepoint >= 'A' && codepoint <= 'Z') ||
+           (codepoint >= 'a' && codepoint <= 'z');
+  case TextInputType::Alphanumeric:
+    return (codepoint >= '0' && codepoint <= '9') ||
+           (codepoint >= 'A' && codepoint <= 'Z') ||
+           (codepoint >= 'a' && codepoint <= 'z');
+  case TextInputType::Custom:
+    return config.customFilter ? config.customFilter(codepoint, text, pos)
+                               : true;
+  case TextInputType::Text:
+  default:
+    return true;
+  }
+}
+
+uint32_t findWhereCursorLanded(const std::string &displayString,
+                               avk::Font *font, float relativeMouseX,
+                               float fontSize) {
+  if (displayString.empty() || !font || relativeMouseX <= 0.0f) {
     return 0;
   }
   float prevWidth = 0.0f;
-  for (uint32_t i = 0; i < textBuffer.size();
-       i = getNextCharIndex(textBuffer, i)) {
-    uint32_t nextI = getNextCharIndex(textBuffer, i);
+  for (uint32_t i = 0; i < displayString.size();
+       i = getNextCharIndex(displayString, i)) {
+    uint32_t nextI = getNextCharIndex(displayString, i);
 
     float currentWidth =
-        font->measureText(textBuffer.substr(0, nextI), fontSize).x;
+        font->measureText(displayString.substr(0, nextI), fontSize).x;
 
     float midPoint = (prevWidth + currentWidth) * 0.5f;
     if (relativeMouseX < midPoint) {
@@ -139,19 +210,16 @@ uint32_t findWhereCursorLanded(const std::string &textBuffer, avk::Font *font,
     }
     prevWidth = currentWidth;
   }
-  return static_cast<uint32_t>(textBuffer.size());
+  return static_cast<uint32_t>(displayString.size());
 }
 
 } // namespace
 
 namespace atomic {
 
-/**
- * @brief Interactive text input box component with cursor selection, dragging,
- * and focus effects.
- */
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
-                      const std::string &placeholder, uint32_t fontId) {
+                      const std::string &placeholder, const TextConfig &config,
+                      uint32_t fontId) {
   auto *uiState = getUiState();
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
@@ -166,7 +234,6 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   bool isFocused = (!isDisabled && uiState->focusedElementId == elementId);
   bool wasHovered = !isDisabled && isHovered(elementId);
 
-  // Default color and border resolution
   glm::vec4 baseBg = rawStyle.backgroundColor.value_or("#ffffff"_hex);
   glm::vec4 baseStrokeColor =
       rawStyle.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
@@ -198,8 +265,8 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     containerStyle = std::move(containerStyle).color(Colors::black[900]);
 
   if (!rawStyle.transitionSpec.has_value()) {
-    containerStyle =
-        std::move(containerStyle).transition(0.2f, Curves::AppleEaseOut);
+    containerStyle = std::move(containerStyle)
+                         .transition(0.2f, motion::AnimationCurve::EaseOut());
   }
 
   const auto &finalStyle = containerStyle.getStyle();
@@ -209,18 +276,34 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   glm::vec4 textColor = finalStyle.textColor.value_or(Colors::black[900]);
 
   uint16_t padL = finalStyle.padLeft.value_or(12);
-  // uint16_t padR = finalStyle.padRight.value_or(12);
-  // uint16_t padT = finalStyle.padTop.value_or(10);
-  // uint16_t padB = finalStyle.padBottom.value_or(10);
 
   avk::Font *font = getFont(fontId != 0 ? fontId : getDefaultFontId());
 
   auto &inputState = uiState->inputStateMap[elementId];
 
-  auto resetSelection = [&]() {
+  // Clear selection highlights automatically when element loses focus
+  if (!isFocused) {
     inputState.selectionStart = 0;
     inputState.selectionEnd = 0;
     inputState.selectionAnchor = 0;
+    inputState.isDraggingText = false;
+    inputState.isPotentialTextDrag = false;
+    inputState.wasArmedByDoubleClick = false;
+    inputState.isDraggingSelectedText = false;
+  }
+
+  std::string displayString = textBuffer;
+  if (config.isPassword && !textBuffer.empty()) {
+    displayString.clear();
+    size_t count = getCodepointCount(textBuffer);
+    for (size_t i = 0; i < count; ++i) {
+      displayString += "•";
+    }
+  }
+
+  auto resetSelection = [&]() {
+    inputState.selectionStart = 0;
+    inputState.selectionEnd = 0;
     uiState->doingShiftSelect = false;
     uiState->selectAll = false;
   };
@@ -238,7 +321,8 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   };
 
   Interaction result = Div(std::move(containerStyle), [&]() {
-    if (result.hovered && !isDisabled) {
+    bool isBoxHovered = Clay_Hovered();
+    if (isBoxHovered && !isDisabled) {
       uiState->anyInputBoxHovered = true;
     }
 
@@ -246,37 +330,180 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     if (bounds.found && !isDisabled) {
       float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
 
-      if (result.hovered && uiState->pointerPressed &&
-          !inputState.isDraggingText) {
-        uint32_t landedPos =
-            findWhereCursorLanded(textBuffer, font, relativeMouseX, fontSize);
+      if (isBoxHovered && uiState->pointerPressed) {
+        uint32_t landedPos = findWhereCursorLanded(displayString, font,
+                                                   relativeMouseX, fontSize);
+
         uiState->focusedElementId = elementId;
-        inputState.selectionAnchor = landedPos;
-        inputState.cursorPosition = landedPos;
-        inputState.selectionStart = landedPos;
-        inputState.selectionEnd = landedPos;
-        inputState.isDraggingText = true;
-        uiState->selectAll = false;
-        uiState->doingShiftSelect = false;
         isFocused = true;
+
+        // Double-click word selection detection
+        auto now = std::chrono::high_resolution_clock::now();
+        float timeSinceLastClick =
+            std::chrono::duration<float>(now - inputState.lastClickTime)
+                .count();
+        float clickDist =
+            glm::length(uiState->pointerPos - inputState.lastClickPos);
+
+        bool isDoubleClick = (timeSinceLastClick < 0.4f) && (clickDist < 10.0f);
+        inputState.lastClickTime = now;
+        inputState.lastClickPos = uiState->pointerPos;
+
+        if (isDoubleClick) {
+          uint32_t wStart = getPreviousWordIndex(displayString, landedPos);
+          uint32_t wEnd = getWordEndIndex(displayString, landedPos);
+
+          inputState.selectionStart = wStart;
+          inputState.selectionEnd = wEnd;
+          inputState.selectionAnchor = wStart;
+          inputState.cursorPosition = wEnd;
+
+          // Double-click only selects the word; do not arm text drag here.
+        } else if (inputState.selectionStart != inputState.selectionEnd &&
+                   landedPos >= inputState.selectionStart &&
+                   landedPos <= inputState.selectionEnd) {
+          // Clicked inside an existing selection: arm potential text drag
+          inputState.isPotentialTextDrag = true;
+          inputState.wasArmedByDoubleClick = false;
+          inputState.dragStartMousePos = uiState->pointerPos;
+        } else {
+          // Normal click: set cursor and prepare for text drag selection
+          inputState.selectionAnchor = landedPos;
+          inputState.cursorPosition = landedPos;
+          inputState.selectionStart = landedPos;
+          inputState.selectionEnd = landedPos;
+          inputState.isDraggingText = true;
+          inputState.dragStartMousePos = uiState->pointerPos;
+          uiState->selectAll = false;
+          uiState->doingShiftSelect = false;
+        }
       }
 
-      if (isFocused && uiState->pointerDown && inputState.isDraggingText) {
-        uint32_t currentLandedPos =
-            findWhereCursorLanded(textBuffer, font, relativeMouseX, fontSize);
-        inputState.cursorPosition = currentLandedPos;
-        inputState.selectionStart =
-            std::min(inputState.selectionAnchor, currentLandedPos);
-        inputState.selectionEnd =
-            std::max(inputState.selectionAnchor, currentLandedPos);
+      if (isFocused && uiState->pointerDown) {
+        float totalTextWidth =
+            font ? font->measureText(displayString, fontSize).x : 0.0f;
+        float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
+
+        if (inputState.isPotentialTextDrag) {
+          float mouseDist =
+              glm::length(uiState->pointerPos - inputState.dragStartMousePos);
+          if (mouseDist > 4.0f) {
+            inputState.isDraggingSelectedText = true;
+            inputState.isPotentialTextDrag = false;
+          }
+        }
+
+        if (inputState.isDraggingText) {
+          uint32_t currentLandedPos = findWhereCursorLanded(
+              displayString, font, clampedMouseX, fontSize);
+          inputState.cursorPosition = currentLandedPos;
+          inputState.selectionStart =
+              std::min(inputState.selectionAnchor, currentLandedPos);
+          inputState.selectionEnd =
+              std::max(inputState.selectionAnchor, currentLandedPos);
+        }
       }
     }
 
     if (!uiState->pointerDown) {
+      if (inputState.isPotentialTextDrag) {
+        inputState.isPotentialTextDrag = false;
+
+        // Released inside selection without dragging: collapse to caret
+        float relativeMouseX =
+            bounds.found ? (uiState->pointerPos.x - (bounds.x() + padL)) : 0.0f;
+        uint32_t landedPos = findWhereCursorLanded(displayString, font,
+                                                   relativeMouseX, fontSize);
+
+        uiState->focusedElementId = elementId;
+        isFocused = true;
+        inputState.cursorPosition = landedPos;
+        inputState.selectionAnchor = landedPos;
+        inputState.selectionStart = landedPos;
+        inputState.selectionEnd = landedPos;
+        resetSelection();
+      }
+
+      if (inputState.isDraggingSelectedText && bounds.found) {
+        inputState.isDraggingSelectedText = false;
+        float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
+        float totalTextWidth =
+            font ? font->measureText(displayString, fontSize).x : 0.0f;
+        float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
+        uint32_t dropPos =
+            findWhereCursorLanded(displayString, font, clampedMouseX, fontSize);
+
+        if (dropPos < inputState.selectionStart ||
+            dropPos > inputState.selectionEnd) {
+          std::string slice = textBuffer.substr(inputState.selectionStart,
+                                                inputState.selectionEnd -
+                                                    inputState.selectionStart);
+          textBuffer.erase(inputState.selectionStart, slice.size());
+
+          uint32_t targetIdx =
+              (dropPos > inputState.selectionEnd)
+                  ? (dropPos - static_cast<uint32_t>(slice.size()))
+                  : dropPos;
+          textBuffer.insert(targetIdx, slice);
+
+          inputState.cursorPosition =
+              targetIdx + static_cast<uint32_t>(slice.size());
+          inputState.selectionStart = targetIdx;
+          inputState.selectionEnd = inputState.cursorPosition;
+        }
+      }
       inputState.isDraggingText = false;
     }
-
     if (isFocused) {
+      auto *app = getVeraApp();
+
+      if (uiState->ctrlPressed && app) {
+        if (uiState->copyTriggered &&
+            inputState.selectionStart != inputState.selectionEnd) {
+          std::string selectedText = textBuffer.substr(
+              inputState.selectionStart,
+              inputState.selectionEnd - inputState.selectionStart);
+          app->setClipboardText(selectedText);
+        }
+
+        if (uiState->cutTriggered &&
+            inputState.selectionStart != inputState.selectionEnd) {
+          std::string selectedText = textBuffer.substr(
+              inputState.selectionStart,
+              inputState.selectionEnd - inputState.selectionStart);
+          if (uiState->copyTriggered) {
+            std::cout << "copy triggered" << std::endl;
+          }
+
+          app->setClipboardText(selectedText);
+          deleteSelection();
+        }
+
+        // Ctrl+V (Paste)
+        bool pasteTriggered = false;
+        for (auto it = uiState->capturedChars.begin();
+             it != uiState->capturedChars.end();) {
+          if (*it == 'v' || *it == 'V' || *it == 22) {
+            pasteTriggered = true;
+            it = uiState->capturedChars.erase(it);
+          } else {
+            ++it;
+          }
+        }
+
+        if (pasteTriggered) {
+          deleteSelection();
+          std::string clipboardText = app->getClipboardText();
+          std::vector<uint32_t> codepoints = decodeUtf8String(clipboardText);
+          for (uint32_t cp : codepoints) {
+            if (validateChar(cp, textBuffer, inputState.cursorPosition,
+                             config)) {
+              appendUtf8(textBuffer, cp, inputState.cursorPosition);
+            }
+          }
+        }
+      }
+
       if (uiState->selectAll) {
         inputState.selectionStart = 0;
         inputState.selectionEnd = static_cast<uint32_t>(textBuffer.size());
@@ -351,7 +578,10 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       if (!uiState->capturedChars.empty()) {
         deleteSelection();
         for (uint32_t codepoint : uiState->capturedChars) {
-          appendUtf8(textBuffer, codepoint, inputState.cursorPosition);
+          if (validateChar(codepoint, textBuffer, inputState.cursorPosition,
+                           config)) {
+            appendUtf8(textBuffer, codepoint, inputState.cursorPosition);
+          }
         }
       }
     }
@@ -360,50 +590,112 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
                               ? bounds.height()
                               : finalStyle.height.value_or(DEFAULT_HEIGHT);
 
+    displayString = textBuffer;
+    if (config.isPassword && !textBuffer.empty()) {
+      displayString.clear();
+      size_t count = getCodepointCount(textBuffer);
+      for (size_t i = 0; i < count; ++i) {
+        displayString += "•";
+      }
+    }
+    // Render Selection Box
     if (isFocused && (inputState.selectionStart != inputState.selectionEnd) &&
         font) {
       float startX =
-          font->measureText(textBuffer.substr(0, inputState.selectionStart),
+          font->measureText(displayString.substr(0, inputState.selectionStart),
                             fontSize)
               .x +
           padL;
       float endX =
-          font->measureText(textBuffer.substr(0, inputState.selectionEnd),
+          font->measureText(displayString.substr(0, inputState.selectionEnd),
                             fontSize)
               .x +
           padL;
       float selectW = endX - startX;
-      float selectH = font->getLineHeight() / 2;
+      float selectH = font->getLineHeight() / 1.5;
       float selectY = (textboxHeight - selectH) * 0.5f;
 
       Div(DefaultModifier()
               .absolute()
+              .pointerEvents(false)
               .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
               .offset(startX, selectY)
               .size(selectW, selectH)
               .background(glm::vec4(0.0f, 0.3f, 0.67f, 0.65f)));
     }
 
-    if (textBuffer.empty()) {
-      Text(placeholder, fontId,
+    // Presentation & Custom Render Hook Override
+    if (config.customRenderer && font) {
+      float startX = bounds.found ? (bounds.x() + padL) : padL;
+      float startY =
+          bounds.found
+              ? (bounds.y() +
+                 (textboxHeight - font->getLineHeight(fontSize)) * 0.5f)
+              : 0.0f;
+      config.customRenderer(displayString, startX, startY, fontSize, font,
+                            textColor);
+    } else {
+      std::string textToRender =
+          textBuffer.empty() ? placeholder : displayString;
+      glm::vec4 finalTextColor = textBuffer.empty() ? "#737373"_hex : textColor;
+
+      Text(textToRender, fontId,
            DefaultModifier()
-               .color("#737373"_hex)
+               .color(finalTextColor)
                .fontSize(fontSize)
                .fontWeight(fontWeight));
-    } else {
-      Text(textBuffer, fontId,
-           DefaultModifier().color(textColor).fontSize(fontSize).fontWeight(
-               fontWeight));
+    }
+    // Render Drop Target Caret when dragging selected text
+    if (inputState.isDraggingSelectedText && bounds.found && font) {
+      bool isOverThisInput =
+          (uiState->pointerPos.x >= bounds.x() &&
+           uiState->pointerPos.x <= bounds.x() + bounds.width() &&
+           uiState->pointerPos.y >= bounds.y() &&
+           uiState->pointerPos.y <= bounds.y() + bounds.height());
+      if (isOverThisInput) {
+        float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
+        float totalTextWidth =
+            font ? font->measureText(displayString, fontSize).x : 0.0f;
+        float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
+        uint32_t dropPos =
+            findWhereCursorLanded(displayString, font, clampedMouseX, fontSize);
+
+        float dropOffset =
+            font->measureText(displayString.substr(0, dropPos), fontSize).x +
+            padL;
+        float dropCaretH = font->getLineHeight() / 1.5;
+        float dropCaretY = (textboxHeight - dropCaretH) * 0.5f;
+
+        Div(DefaultModifier()
+                .absolute()
+                .pointerEvents(false)
+                .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
+                .offset(dropOffset, dropCaretY)
+                .size(2.0f, dropCaretH)
+                .background(textColor));
+      }
     }
 
-    if (isFocused && (inputState.selectionStart == inputState.selectionEnd) &&
-        font) {
-      float cursorOffset =
-          font->measureText(textBuffer.substr(0, inputState.cursorPosition),
-                            fontSize)
-              .x +
-          padL;
-      float caretH = font->getLineHeight() / 2;
+    // Render Caret Line
+    if (isFocused && font) {
+      float cursorOffset = padL;
+      if (config.isPassword) {
+        // Count how many actual characters exist before the cursor
+        size_t numCodepoints =
+            getCodepointCount(textBuffer.substr(0, inputState.cursorPosition));
+        std::string maskedSub;
+        for (size_t i = 0; i < numCodepoints; ++i) {
+          maskedSub += "•";
+        }
+        cursorOffset += font->measureText(maskedSub, fontSize).x;
+      } else {
+        // Safe to slice directly
+        cursorOffset += font->measureText(displayString.substr(
+                                              0, inputState.cursorPosition),
+                                          fontSize)
+                            .x;
+      }
+      float caretH = font->getLineHeight() / 1.5;
       float caretY = (textboxHeight - caretH) * 0.5f;
 
       Div(DefaultModifier()
@@ -414,6 +706,23 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
               .background(textColor));
     }
   });
+
+  // Floating Drag-and-Drop Selection Ghost
+  if (inputState.isDraggingSelectedText && uiState->pointerDown) {
+    std::string draggedSlice =
+        textBuffer.substr(inputState.selectionStart,
+                          inputState.selectionEnd - inputState.selectionStart);
+
+    Div(DefaultModifier()
+            .fixed()
+            .left(uiState->pointerPos.x + 25.0f)
+            .top(uiState->pointerPos.y + 25.0f),
+        [&]() {
+          Text(draggedSlice, fontId,
+               DefaultModifier().color(textColor).opacity(0.5).fontSize(
+                   fontSize));
+        });
+  }
 
   if (isDisabled) {
     result.hovered = false;
@@ -429,9 +738,15 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   return result;
 }
 
+Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
+                      const std::string &placeholder, uint32_t fontId) {
+  return TextInput(std::move(modifier), textBuffer, placeholder, TextConfig{},
+                   fontId);
+}
+
 Interaction TextInput(std::string &textBuffer, const std::string &placeholder,
                       Modifier &&modifier) {
-  return TextInput(std::move(modifier), textBuffer, placeholder,
+  return TextInput(std::move(modifier), textBuffer, placeholder, TextConfig{},
                    getDefaultFontId());
 }
 

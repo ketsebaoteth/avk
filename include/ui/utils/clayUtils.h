@@ -27,17 +27,21 @@ measureTextCallback(Clay_StringSlice text, Clay_TextElementConfig *config,
   auto uiState = getUiState();
   (void)userData;
 
-  if (!uiState || !config || config->fontId >= uiState->fonts.size() ||
-      text.length <= 0) {
+  if (!uiState || !config || config->fontId >= uiState->fonts.size()) {
     return Clay_Dimensions{0.0f, 0.0f};
   }
 
   const auto &font = *uiState->fonts[config->fontId];
-  std::string safeStr(text.chars, static_cast<size_t>(text.length));
-
-  // Fallback to 14.0f if config->fontSize is 0
   float fontSize =
       (config->fontSize > 0) ? static_cast<float>(config->fontSize) : 14.0f;
+
+  // If text is empty, still measure it so we get the proper line height instead
+  // of 0
+  std::string safeStr = "";
+  if (text.length > 0) {
+    safeStr = std::string(text.chars, static_cast<size_t>(text.length));
+  }
+
   glm::vec2 size = font.measureText(safeStr, fontSize);
 
   // Letter spacing extra width calculation

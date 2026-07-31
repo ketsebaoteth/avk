@@ -3,7 +3,10 @@
 #include "clay.h"
 #include "ui/components.h"
 #include "ui/core/resources.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/utils/clayUtils.h"
+
+#include <cmath>
 
 namespace atomic {
 
@@ -28,8 +31,8 @@ Interaction Text(const std::string &text, uint32_t fontId,
 }
 
 /**
- * @brief Core Text primitive resolving cascading style inheritance and
- * multiline wrapped height.
+ * @brief Core Text primitive resolving cascading style inheritance, margins,
+ * and multiline wrapped height.
  */
 Interaction Text(const std::string &text, uint32_t fontId,
                  Clay_ElementId textId, Modifier &&modifier) {
@@ -37,6 +40,36 @@ Interaction Text(const std::string &text, uint32_t fontId,
   auto *uiState = getUiState();
 
   Style style = utils::layout::resolveTransitions(textId.id, rawStyle);
+
+  bool hasMargin =
+      style.marginLeft.has_value() || style.marginRight.has_value() ||
+      style.marginTop.has_value() || style.marginBottom.has_value();
+
+  /**
+   * @brief Outer margin padding container ID.
+   */
+  Clay_ElementId outerId = textId;
+  outerId.id += 0x6D417267;
+
+  if (hasMargin) {
+    Clay__OpenElementWithId(outerId);
+
+    float ml = style.marginLeft.value_or(0.0f);
+    float mr = style.marginRight.value_or(0.0f);
+    float mt = style.marginTop.value_or(0.0f);
+    float mb = style.marginBottom.value_or(0.0f);
+
+    Clay_ElementDeclaration outerDecl{};
+    utils::layout::applyStyleToLayout(outerDecl, style);
+
+    outerDecl.layout.padding = {static_cast<uint16_t>(std::round(ml)),
+                                static_cast<uint16_t>(std::round(mr)),
+                                static_cast<uint16_t>(std::round(mt)),
+                                static_cast<uint16_t>(std::round(mb))};
+
+    outerDecl.backgroundColor = {0, 0, 0, 0};
+    Clay__ConfigureOpenElement(outerDecl);
+  }
 
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
@@ -80,7 +113,6 @@ Interaction Text(const std::string &text, uint32_t fontId,
   auto *payload = utils::layout::createFramePayload(style, std::nullopt,
                                                     std::nullopt, textOffset);
 
-  // Directly open Clay's Text Element (No redundant outer Div wrapper!)
   Clay_TextElementConfig config{};
   config.fontId = static_cast<uint16_t>(finalFontId);
   config.fontSize = static_cast<uint16_t>(std::round(finalFontSize));
@@ -90,6 +122,10 @@ Interaction Text(const std::string &text, uint32_t fontId,
   config.userData = payload;
 
   Clay__OpenTextElement(allocatedString, config);
+
+  if (hasMargin) {
+    Clay__CloseElement();
+  }
 
   bool isHovered = false;
   Clay_ElementData elementData = Clay_GetElementData(textId);

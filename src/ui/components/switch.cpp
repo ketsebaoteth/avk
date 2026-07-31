@@ -1,15 +1,15 @@
 #include "avk/utils/ui/2dCollision.h"
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
-#include "ui/animation/animation.h" // Access AnimateFloat and AnimateVec4
 #include "ui/components.h"
+#include "ui/motion/AtomicMotion.h"
 
 namespace atomic {
 
 /**
- * @brief Animated sliding toggle switch component built on top of Div.
+ * @brief Animated sliding toggle switch component built on top of Div using
+ * Atomic.Motion.
  */
-
 Interaction Switch(Modifier &&modifier, bool &checked) {
   const auto &style = modifier.getStyle();
   auto *uiState = getUiState();
@@ -43,8 +43,12 @@ Interaction Switch(Modifier &&modifier, bool &checked) {
   glm::vec4 activeColor = style.backgroundColor.value_or(Colors::orange);
   glm::vec4 targetColor = checked ? activeColor : inactiveColor;
 
-  glm::vec4 animatedColor = AnimateVec4(switchId.id + 0x1000, targetColor,
-                                        0.18f, Curves::AppleEaseOut);
+  using motion::MotionHandle;
+  auto &motionMgr = uiState->motionManager;
+
+  glm::vec4 animatedColor = motionMgr.animate<glm::vec4>(
+      MotionHandle{switchId.id + 0x1000}, targetColor, 0.18f,
+      motion::AnimationCurve::EaseOut());
 
   float thumbSize = height - (pad * 2.0f);
   float minX = pad;
@@ -52,7 +56,8 @@ Interaction Switch(Modifier &&modifier, bool &checked) {
   float targetX = checked ? maxX : minX;
 
   float animatedX =
-      AnimateFloat(switchId.id + 0x2000, targetX, 0.18f, Curves::AppleEaseOut);
+      motionMgr.animate<float>(MotionHandle{switchId.id + 0x2000}, targetX,
+                               0.18f, motion::AnimationCurve::EaseOut());
 
   Modifier switchStyle = std::move(modifier)
                              .background(animatedColor)

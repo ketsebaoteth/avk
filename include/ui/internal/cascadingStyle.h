@@ -1,5 +1,6 @@
 #pragma once
 #include "glm/glm.hpp"
+#include "ui/utils/color.h"
 #include <cstdint>
 
 namespace atomic {
@@ -8,7 +9,8 @@ namespace atomic {
  * hierarchy.
  */
 struct CascadingStyle {
-  glm::vec4 textColor = glm::vec4(1.0f);
+  glm::vec4 textColor = Colors::black[900];
+  glm::vec2 inheritedTranslate = {0.0f, 0.0f};
   uint32_t fontId = 0;
   float textOffset = 0.0f;
   float inheritedOpacity = 1.0f;

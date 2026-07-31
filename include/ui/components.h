@@ -1,5 +1,4 @@
 #pragma once
-#include "animation/animation.h"
 #include "ui/generated/lucideIcons.generated.h"
 #include "ui/internal/context.h"
 #include "ui/renderer/interaction.h"
@@ -96,21 +95,49 @@ inline Interaction Button(const std::string &label,
 }
 
 /**
- * @brief Interactive immediate-mode text input component.
+ * @brief Input filtering policy enum for TextInput.
+ */
+enum class TextInputType { Text, NumberOnly, AlphaOnly, Alphanumeric, Custom };
+
+/**
+ * @brief Custom render callback hook signature for TextInput presentation
+ * overrides.
+ */
+using CustomTextRendererFn = std::function<void(
+    const std::string &displayString, float x, float y, float fontSize,
+    avk::Font *font, const glm::vec4 &textColor)>;
+
+/**
+ * @brief Comprehensive configuration descriptor for TextInput validation,
+ * rendering, and behavior.
+ */
+struct TextConfig {
+  TextInputType type = TextInputType::Text;
+  std::function<bool(uint32_t codepoint, const std::string &currentText,
+                     uint32_t cursorIdx)>
+      customFilter{nullptr};
+  CustomTextRendererFn customRenderer{
+      nullptr};         // Custom SVG/Glyph rendering hook
+  size_t maxLength = 0; // 0 = Unlimited
+  bool isPassword = false;
+};
+
+/**
+ * @brief Interactive text input box component with full config validation,
+ * clipboard, and selection.
  */
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
-                      const std::string &placeholder, uint32_t fontId);
+                      const std::string &placeholder, const TextConfig &config,
+                      uint32_t fontId = 0);
 
-/**
- * @brief Convenience overload for TextInput using default font.
- */
-Interaction TextInput(std::string &textBuffer,
-                      const std::string &placeholder = "",
-                      Modifier &&modifier = DefaultModifier());
+Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
+                      const std::string &placeholder = "", uint32_t fontId = 0);
 
-/**
- * @brief Placement positioning modes for Select dropdown menus.
- */
+Interaction TextInput(std::string &textBuffer, const std::string &placeholder,
+                      Modifier &&modifier); /**
+                                             * @brief Placement positioning
+                                             * modes for Select dropdown menus.
+                                             */
 enum class DropdownPlacement { Smart, Bottom, Top, Left, Right };
 
 /**

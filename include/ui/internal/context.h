@@ -4,10 +4,12 @@
 #include "avk/avk_font.h"
 #include "avk/avk_renderer.h"
 #include "avk/window/session.h"
+#include "clay.h"
 
 #include "core/app/App.h"
 #include "ui/internal/cascadingStyle.h"
 #include "ui/internal/payload.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/state/inputState.h"
 #include "ui/state/scrollViewState.h"
 
@@ -18,12 +20,23 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
 class VeraWindow;
 
 namespace atomic {
+
+/**
+ * @brief Stable label hashing helper using Clay's ElementId resolver.
+ */
+inline uint32_t hashLabel(std::string_view label) {
+  Clay_String str{.isStaticallyAllocated = false,
+                  .length = static_cast<int32_t>(label.size()),
+                  .chars = label.data()};
+  return Clay_GetElementId(str).id;
+}
 
 /**
  * @brief Complete runtime lifecycle and focus state for a single UI element.
@@ -55,6 +68,7 @@ struct UIState {
   std::vector<uint32_t> positioningContextStack;
   std::vector<CascadingStyle> cascadingStyleStack;
   std::unordered_map<uint32_t, CascadingStyle> computedStyleMap;
+  atomic::motion::MotionManager motionManager;
 
   // Lifecycle & interaction state stores (previous frame vs current frame)
   std::unordered_map<uint32_t, ElementLifecycleState> previousLifecycleMap;
@@ -89,6 +103,9 @@ struct UIState {
   bool rightArrowPressed = false;
   bool ctrlPressed = false;
   bool shiftPressed = false;
+  bool copyTriggered = false;
+  bool cutTriggered = false;
+  bool pasteTriggered = false;
 
   [[nodiscard]] CascadingStyle getActiveCascadingStyle() const {
     if (!cascadingStyleStack.empty()) {

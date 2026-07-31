@@ -3,13 +3,17 @@
 #include "clay.h"
 #include "ui/components.h"
 #include "ui/internal/cascadingStyle.h"
+#include "ui/motion/AtomicMotion.h"
+
+#include <cmath>
 #include <unordered_map>
 
 namespace atomic {
 
 /**
- * @brief Core universal layout primitive managing flex direction, custom string
- * IDs, transitions, and style cascading.
+ * @brief Core universal layout primitive managing flex direction, margins,
+ * transitions, style cascading, and transform/translation offsets backed by
+ * atomic::motion.
  */
 Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   const auto &rawStyle = modifier.getStyle();
@@ -26,9 +30,11 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
       style.marginLeft.has_value() || style.marginRight.has_value() ||
       style.marginTop.has_value() || style.marginBottom.has_value();
 
-  // Deterministic outer ID for margins
+  /**
+   * @brief Outer element ID for outer margin padding wrapper.
+   */
   Clay_ElementId outerId = divId;
-  outerId.id += 0x6D417267; // "MArg" hex tag
+  outerId.id += 0x6D417267;
 
   if (hasMargin) {
     Clay__OpenElementWithId(outerId);
@@ -40,18 +46,16 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
 
     Clay_ElementDeclaration outerDecl{};
 
-    // ✅ FIX: Use applyStyleToLayout so widthGrow(), heightGrow(), and sizing
-    // work correctly on the outer wrapper!
+    /**
+     * @brief Configure outer wrapper sizing parameters.
+     */
     utils::layout::applyStyleToLayout(outerDecl, style);
 
-    // Override padding on the outer container to act as margins
     outerDecl.layout.padding = {static_cast<uint16_t>(std::round(ml)),
                                 static_cast<uint16_t>(std::round(mr)),
                                 static_cast<uint16_t>(std::round(mt)),
                                 static_cast<uint16_t>(std::round(mb))};
 
-    // Outer margin container must be completely transparent (no
-    // background/border)
     outerDecl.backgroundColor = {0, 0, 0, 0};
 
     Clay__ConfigureOpenElement(outerDecl);
@@ -94,18 +98,17 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
 
   Clay_ElementDeclaration decl{};
 
-  // If there's a margin, the inner element should fill the outer container's
-  // space completely
   Style innerStyle = style;
   if (hasMargin) {
-    // Force inner element to grow to fill the margin wrapper
+    /**
+     * @brief Inner element expands to fill outer margin wrapper completely.
+     */
     innerStyle.width = 0;
     innerStyle.height = 0;
   }
 
   utils::layout::applyStyleToLayout(decl, innerStyle);
 
-  // Apply internal padding to the inner element
   decl.layout.padding = {
       static_cast<uint16_t>(std::round(style.padLeft.value_or(0.0f))),
       static_cast<uint16_t>(std::round(style.padRight.value_or(0.0f))),
@@ -143,10 +146,8 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
     content();
   }
 
-  // Close inner element
   Clay__CloseElement();
 
-  // Close outer margin wrapper if present
   if (hasMargin) {
     Clay__CloseElement();
   }
@@ -155,8 +156,14 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   if (clayHovered) {
     Clay_ElementData elementData = Clay_GetElementData(divId);
     if (elementData.found) {
-      isHovered = utils::ui::isPointerOverRoundedBox(
-          uiState->pointerPos, elementData.boundingBox, radius);
+      // Offset bounding box by transform/translation for accurate hit testing
+      glm::vec2 translation = style.translate.value_or(glm::vec2(0.0f));
+      Clay_BoundingBox hitBox = elementData.boundingBox;
+      hitBox.x += translation.x;
+      hitBox.y += translation.y;
+
+      isHovered = utils::ui::isPointerOverRoundedBox(uiState->pointerPos,
+                                                     hitBox, radius);
     }
   }
 

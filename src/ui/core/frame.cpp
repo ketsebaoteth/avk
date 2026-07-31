@@ -1,12 +1,14 @@
 #include "ui/core/frame.h"
 #include "Vera/src/vera_windowing/core/app/Types.h"
-#include "ui/animation/animation.h"
 #include "ui/core/gradientAtlas.h"
 #include "ui/internal/context.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/style/style.h"
 #include "ui/utils/clayUtils.h"
 #include "ui/utils/coreUtils.h"
+
 #include <cstdint>
+#include <vector>
 
 namespace atomic {
 
@@ -20,22 +22,28 @@ bool beginFrame(VeraWindow *window) {
   if (session == nullptr || !session->canvas->isActive())
     return false;
 
-  // 1. Reset frame transient stacks
+  uiState->anyInputBoxHovered = false;
+
   uiState->computedStyleMap.clear();
   uiState->positioningContextStack.clear();
   uiState->cascadingStyleStack.clear();
 
-  // 2. Swap lifecycle history maps for zero-allocation state tracking
   uiState->previousLifecycleMap = std::move(uiState->currentLifecycleMap);
   uiState->currentLifecycleMap.clear();
 
-  // 3. Track focus edge transitions (focusGained / focusLost)
   uiState->previousFocusedElementId = uiState->focusedElementId;
 
-  // 4. Update pointer state & delta timers
+  /**
+   * @brief 4. Update pointer state & delta timers.
+   */
   setClayCursorState(uiState->pointerPos, uiState->pointerDown);
   calcFrameDeltaTime(session);
-  atomic::AnimationManager::instance().update(session->lastDeltaTime);
+
+  /**
+   * @brief 5. Tick active MotionManager animations & timelines.
+   */
+  uiState->motionManager.tick(session->lastDeltaTime);
+
   resetGlobalIdCounter();
 
   auto state = window->getState();
@@ -185,9 +193,8 @@ void endFrame(VeraWindow *window) {
           cmd->boundingBox, elementScale, elementRotation, transformOrigin,
           translate);
 
-      float absoluteRight = transformedRect.x + transformedRect.z; // x + width
-      float absoluteBottom =
-          transformedRect.y + transformedRect.w; // y + height
+      float absoluteRight = transformedRect.x + transformedRect.z;
+      float absoluteBottom = transformedRect.y + transformedRect.w;
 
       float snappedX = std::round(transformedRect.x);
       float snappedY = std::round(transformedRect.y);
@@ -210,21 +217,18 @@ void endFrame(VeraWindow *window) {
                                             rectData->cornerRadius.bottomRight);
       mainInstance.clipRect = activeClipRect;
       mainInstance.shapeType = 0;
-      mainInstance.fillType = 0; // Solid Default
+      mainInstance.fillType = 0;
 
-      // --- GRADIENT RESOLUTION (2-Stop Direct & Multi-Stop 1D Atlas) ---
       if (elementGradient.has_value() &&
           elementGradient->type != GradientType::Disabled) {
         const auto &g = elementGradient.value();
 
         if (g.stops.size() > 2) {
-          // Multi-stop gradient (3, 7, 20+ stops) -> Route to 1D Gradient
-          // Atlas!
           uint32_t gradTexIdx =
-              atomic::GradientAtlasManager ::instance()
+              atomic::GradientAtlasManager::instance()
                   .getOrCreateGradientTexture(uiState->context.get(), g);
 
-          mainInstance.fillType = 8; // 1D Gradient Atlas Fill
+          mainInstance.fillType = 8;
           mainInstance.textureIndex = gradTexIdx;
 
           if (g.type == atomic::GradientType::Linear) {
@@ -237,15 +241,14 @@ void endFrame(VeraWindow *window) {
             mainInstance.gradientEnd = g.center + g.radius;
           }
         } else if (g.stops.size() == 2) {
-          // Fast 2-Stop Gradient
           if (g.type == atomic::GradientType::Linear) {
-            mainInstance.fillType = 1; // Linear
+            mainInstance.fillType = 1;
             float rad = glm::radians(g.angleDegrees - 90.0f);
             glm::vec2 dir(std::cos(rad), std::sin(rad));
             mainInstance.gradientStart = glm::vec2(0.5f) - dir * 0.5f;
             mainInstance.gradientEnd = glm::vec2(0.5f) + dir * 0.5f;
           } else if (g.type == atomic::GradientType::Radial) {
-            mainInstance.fillType = 2; // Radial
+            mainInstance.fillType = 2;
             mainInstance.gradientStart = g.center;
             mainInstance.gradientEnd = g.center + g.radius;
           }
@@ -556,16 +559,26 @@ void endFrame(VeraWindow *window) {
 
   session->canvas->endFrame(*uiState->renderer);
 
-  // 1. Wipe payload memory safely
+  /**
+   * @brief 1. Wipe transient payload memory safely.
+   */
   uiState->framePayloads.clear();
 
-  // 2. Run Garbage Collection on unmounted animation states
-  atomic::AnimationManager::instance().gc();
+  /**
+   * @brief 2. Run non-destructive MotionManager garbage collection for
+   * unmounted element states.
+   */
+  uiState->motionManager.gc();
 
-  // 3. Reset input states
+  /**
+   * @brief 3. Reset per-frame input states.
+   */
   uiState->capturedChars.clear();
   uiState->backspacePressed = false;
   uiState->enterPressed = false;
+  uiState->cutTriggered = false;
+  uiState->pasteTriggered = false;
+  uiState->copyTriggered = false;
   uiState->anyInputBoxHovered = false;
   uiState->deletePressed = false;
   uiState->leftArrowPressed = false;

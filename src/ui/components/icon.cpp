@@ -1,11 +1,17 @@
 #include "clay.h"
 #include "ui/components.h"
 #include "ui/generated/lucideIcons.generated.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/utils/coreUtils.h"
+
+#include <string>
 #include <unordered_map>
 
 namespace {
 
+/**
+ * @brief Converts a 32-bit Unicode codepoint to a standard UTF-8 string.
+ */
 std::string codepointToUtf8(char32_t codepoint) {
   std::string out;
   if (codepoint <= 0x7F) {
@@ -31,7 +37,8 @@ std::string codepointToUtf8(char32_t codepoint) {
 namespace atomic {
 
 /**
- * @brief Renders a vector Lucide icon with cascading style inheritance.
+ * @brief Renders a vector Lucide icon with cascading style inheritance using
+ * font atlas glyph mapping.
  */
 Interaction Icon(LucideIcon icon, Modifier &&modifier) {
   static std::unordered_map<LucideIcon, std::string> iconStringCache;
@@ -44,11 +51,9 @@ Interaction Icon(LucideIcon icon, Modifier &&modifier) {
   const std::string &iconString = iconStringCache[icon];
   const auto &style = modifier.getStyle();
 
-  // Read explicit fontSize or fallback to size/height
   const float requestedSize = style.fontSize.value_or(
       style.height.value_or(style.width.value_or(16.0f)));
 
-  // Uses single MSDF icon font atlas (g_uiState->defaultIconFontIds[0])!
   return Text(iconString, getUiState()->defaultIconFontIds[0],
               std::move(modifier)
                   .fontSize(requestedSize)

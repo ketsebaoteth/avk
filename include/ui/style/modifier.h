@@ -1,20 +1,39 @@
 #pragma once
 
 #include "glm/glm.hpp"
+#include "ui/internal/context.h"
+#include "ui/motion/AtomicMotion.h"
 #include "ui/style/style.h"
+
 #include <algorithm>
 #include <optional>
+#include <string>
 #include <utility>
 
 namespace atomic {
 
 /**
- * @brief chaining modifier interface holding layout and
- * visual styles.
+ * @brief Simple 3-state value container for Idle, Hovered, and Pressed
+ * interaction targets.
+ */
+template <typename T> struct MotionState {
+  T idle{};
+  T hovered{};
+  T pressed{};
+
+  [[nodiscard]] constexpr T resolve(bool isHovered,
+                                    bool isPressed) const noexcept {
+    return isPressed ? pressed : (isHovered ? hovered : idle);
+  }
+};
+
+/**
+ * @brief Fluent chaining modifier interface holding layout and visual styles.
  */
 class Modifier {
 public:
   Modifier() = default;
+
   /** @brief Sets an explicit string ID for declarative state queries
    * (isHovered, isPressed). */
   Modifier id(const std::string &label) && {
@@ -22,12 +41,159 @@ public:
     return std::move(*this);
   }
 
+  // =========================================================================
+  // HIGH-LEVEL MOTION SHORTHANDS (Re-uses ID set via .id())
+  // =========================================================================
+
+  /** @brief Animates element scale using a single target value. */
+  Modifier animateScale(float targetScale, float duration = 0.2f,
+                        AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    auto *uiState = getUiState();
+    if (!uiState)
+      return std::move(*this).scale(targetScale);
+
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+
+    float animatedScale = uiState->motionManager.animate<float>(
+        motion::MotionHandle(rawId, "scale"), targetScale, duration, curve);
+
+    return std::move(*this).scale(animatedScale);
+  }
+
+  /** @brief Animates element scale across 3 states (Idle, Hovered, Pressed)
+   * using stored .id(). */
+  Modifier animateScale(const MotionState<float> &state, float duration = 0.2f,
+                        AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+    bool hov = isHovered(rawId);
+    bool prs = isPressed(rawId);
+
+    float target = state.resolve(hov, prs);
+    return std::move(*this).animateScale(target, duration, curve);
+  }
+
+  /** @brief Animates background color using a single target value. */
+  Modifier
+  animateBackground(const glm::vec4 &targetBg, float duration = 0.2f,
+                    AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    auto *uiState = getUiState();
+    if (!uiState)
+      return std::move(*this).background(targetBg);
+
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+
+    glm::vec4 animatedBg = uiState->motionManager.animate<glm::vec4>(
+        motion::MotionHandle(rawId, "bg"), targetBg, duration, curve);
+
+    return std::move(*this).background(animatedBg);
+  }
+
+  /** @brief Animates background color across 3 states (Idle, Hovered, Pressed)
+   * using stored .id(). */
+  Modifier
+  animateBackground(const MotionState<glm::vec4> &state, float duration = 0.2f,
+                    AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+    bool hov = isHovered(rawId);
+    bool prs = isPressed(rawId);
+
+    glm::vec4 target = state.resolve(hov, prs);
+    return std::move(*this).animateBackground(target, duration, curve);
+  }
+
+  /** @brief Animates border color using a single target value. */
+  Modifier animateBorder(const glm::vec4 &targetColor, float thickness = 1.0f,
+                         float duration = 0.2f,
+                         AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    auto *uiState = getUiState();
+    if (!uiState)
+      return std::move(*this).border(targetColor, thickness);
+
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+
+    glm::vec4 animatedColor = uiState->motionManager.animate<glm::vec4>(
+        motion::MotionHandle(rawId, "border"), targetColor, duration, curve);
+
+    return std::move(*this).border(animatedColor, thickness);
+  }
+
+  /** @brief Animates border color across 3 states (Idle, Hovered, Pressed)
+   * using stored .id(). */
+  Modifier animateBorder(const MotionState<glm::vec4> &state,
+                         float thickness = 1.0f, float duration = 0.2f,
+                         AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+    bool hov = isHovered(rawId);
+    bool prs = isPressed(rawId);
+
+    glm::vec4 target = state.resolve(hov, prs);
+    return std::move(*this).animateBorder(target, thickness, duration, curve);
+  }
+
+  /** @brief Animates GPU translation offset using a single target vector. */
+  Modifier
+  animateTranslate(const glm::vec2 &targetTranslate, float duration = 0.2f,
+                   AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    auto *uiState = getUiState();
+    if (!uiState)
+      return std::move(*this).translate(targetTranslate.x, targetTranslate.y);
+
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+
+    float tx = uiState->motionManager.animate<float>(
+        motion::MotionHandle(rawId, "tx"), targetTranslate.x, duration, curve);
+    float ty = uiState->motionManager.animate<float>(
+        motion::MotionHandle(rawId, "ty"), targetTranslate.y, duration, curve);
+
+    return std::move(*this).translate(tx, ty);
+  }
+
+  /** @brief Animates GPU translation offset across 3 states (Idle, Hovered,
+   * Pressed). */
+  Modifier
+  animateTranslate(const MotionState<glm::vec2> &state, float duration = 0.2f,
+                   AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+    bool hov = isHovered(rawId);
+    bool prs = isPressed(rawId);
+
+    glm::vec2 target = state.resolve(hov, prs);
+    return std::move(*this).animateTranslate(target, duration, curve);
+  }
+
+  /** @brief Animates opacity multiplier using a single target value. */
+  Modifier animateOpacity(float targetOpacity, float duration = 0.2f,
+                          AnimationCurve curve = AnimationCurve::EaseOut()) && {
+    auto *uiState = getUiState();
+    if (!uiState)
+      return std::move(*this).opacity(targetOpacity);
+
+    std::string label = m_style.elementLabel.value_or("AnonModifier");
+    uint32_t rawId = hashLabel(label);
+
+    float animatedAlpha = uiState->motionManager.animate<float>(
+        motion::MotionHandle(rawId, "opacity"), targetOpacity, duration, curve);
+
+    return std::move(*this).opacity(animatedAlpha);
+  }
+
+  // =========================================================================
+  // STANDARD LAYOUT MODIFIERS
+  // =========================================================================
+
   Modifier margin(float all) {
     m_style.marginLeft = all;
     m_style.marginRight = all;
     m_style.marginTop = all;
     m_style.marginBottom = all;
-
     return std::move(*this);
   }
   Modifier margin(float horizontal, float vertical) {
@@ -35,7 +201,6 @@ public:
     m_style.marginRight = horizontal;
     m_style.marginTop = vertical;
     m_style.marginBottom = vertical;
-
     return std::move(*this);
   }
   Modifier margin(glm::vec4 all) {
@@ -43,7 +208,6 @@ public:
     m_style.marginRight = all.y;
     m_style.marginTop = all.z;
     m_style.marginBottom = all.w;
-
     return std::move(*this);
   }
 
@@ -67,31 +231,27 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Sets explicit line height in pixels. */
   Modifier lineHeight(float height) && {
     m_style.lineHeight = height;
     return std::move(*this);
   }
-  /** @brief Make width expand to fill all available parent space (flex-grow:
-   * 1). */
+
   Modifier widthGrow() && {
     m_style.width = 0.0f;
     return std::move(*this);
   }
 
-  /** @brief Make height expand to fill all available parent space. */
   Modifier heightGrow() && {
     m_style.height = 0.0f;
     return std::move(*this);
   }
 
-  /** @brief Make both width and height expand to fill parent space. */
   Modifier grow() && {
     m_style.width = 0.0f;
     m_style.height = 0.0f;
     return std::move(*this);
   }
-  /** @brief Append a custom Box Shadow (Outset or Inset). */
+
   Modifier shadow(const glm::vec4 &color, float blurRadius,
                   float offsetX = 0.0f, float offsetY = 4.0f,
                   float spreadRadius = 0.0f, bool inset = false) && {
@@ -104,13 +264,11 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Append a pre-configured BoxShadow struct. */
   Modifier shadow(const BoxShadow &shadow) && {
     m_style.boxShadows.push_back(shadow);
     return std::move(*this);
   }
 
-  /** @brief Append an Inset Inner Shadow. */
   Modifier insetShadow(const glm::vec4 &color, float blurRadius,
                        float offsetX = 0.0f, float offsetY = 2.0f,
                        float spreadRadius = 0.0f) && {
@@ -118,7 +276,6 @@ public:
                                    spreadRadius, true);
   }
 
-  /** @brief Subtle web-style drop shadow preset (Levels 1 to 5). */
   Modifier subtleShadow(int level = 1) && {
     level = std::clamp(level, 1, 5);
 
@@ -147,8 +304,6 @@ public:
     }
   }
 
-  /** @brief Enables implicit CSS-style transition interpolation for changing
-   * properties. */
   Modifier transition(float duration = 0.15f,
                       AnimationCurve curve = AnimationCurve::EaseOut()) && {
     m_style.transitionSpec =
@@ -156,166 +311,137 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Set element background color. */
   Modifier background(const glm::vec4 &color) && {
     m_style.backgroundColor = color;
     return std::move(*this);
   }
 
-  /** @brief Set text color. */
   Modifier color(const glm::vec4 &textColor) && {
     m_style.textColor = textColor;
     return std::move(*this);
   }
 
-  /** @brief Alias for text color setting. */
   Modifier textColor(const glm::vec4 &textColor) && {
     m_style.textColor = textColor;
     return std::move(*this);
   }
 
-  /** @brief Set vertical text alignment offset in pixels. */
   Modifier textOffset(float y) && {
     m_style.textOffset = y;
     return std::move(*this);
   }
 
-  /** @brief Set opacity multiplier (0.0 to 1.0). */
   Modifier opacity(float alpha) && {
     m_style.opacity = alpha;
     return std::move(*this);
   }
 
-  /** @brief Set component disabled state. */
   Modifier disabled(bool isDisabled = true) && {
     m_style.disabled = isDisabled;
     return std::move(*this);
   }
 
-  /** @brief Set container layout direction. */
   Modifier direction(LayoutDirection dir) && {
     m_style.direction = dir;
     return std::move(*this);
   }
 
-  /** @brief Set layout direction to horizontal Row. */
   Modifier row() && {
     m_style.direction = LayoutDirection::Row;
     return std::move(*this);
   }
 
-  /** @brief Set layout direction to vertical Column. */
   Modifier column() && {
     m_style.direction = LayoutDirection::Column;
     return std::move(*this);
   }
 
-  /** @brief Set uniform 2D transform scale factor. */
   Modifier scale(float s) && {
     m_style.scale = s;
     return std::move(*this);
   }
 
-  /** @brief Set 2D rotation angle in radians. */
   Modifier rotation(float r) && {
     m_style.rotation = r;
     return std::move(*this);
   }
 
-  /** @brief Set edge blur radius in pixels. */
   Modifier blur(float b) && {
     m_style.blur = b;
     return std::move(*this);
   }
 
-  /** @brief Enable or disable pointer event capture. */
   Modifier pointerEvents(bool capture) && {
     m_style.pointerEvents = capture;
     return std::move(*this);
   }
 
-  /** @brief Set positioning mode to Relative. */
   Modifier relative() && {
     m_style.position = Position::Relative;
     return std::move(*this);
   }
 
-  /** @brief Set positioning mode to Absolute. */
   Modifier absolute() && {
     m_style.position = Position::Absolute;
     return std::move(*this);
   }
 
-  /** @brief Set positioning mode to Fixed (Viewport root). */
   Modifier fixed() && {
     m_style.position = Position::Fixed;
     return std::move(*this);
   }
 
-  /** @brief Explicitly anchor floating element to a target element ID. */
   Modifier parentId(uint32_t id) && {
     m_style.parentId = id;
     return std::move(*this);
   }
 
-  /** @brief Specify floating anchor points (Element attach point -> Parent
-   * attach point). */
   Modifier attach(AttachPoint elementPt, AttachPoint parentPt) && {
     m_style.elementAttach = elementPt;
     m_style.parentAttach = parentPt;
     return std::move(*this);
   }
 
-  /** @brief Set post-layout offset (X, Y) in pixels. */
   Modifier offset(float x, float y) && {
     m_style.offset = glm::vec2(x, y);
     return std::move(*this);
   }
 
-  /** @brief Set post-layout offset vector. */
   Modifier offset(const glm::vec2 &off) && {
     m_style.offset = off;
     return std::move(*this);
   }
 
-  /** @brief Set left inset coordinate for absolute positioning. */
   Modifier left(float val) && {
     m_style.left = val;
     return std::move(*this);
   }
 
-  /** @brief Set right inset coordinate for absolute positioning. */
   Modifier right(float val) && {
     m_style.right = val;
     return std::move(*this);
   }
 
-  /** @brief Set top inset coordinate for absolute positioning. */
   Modifier top(float val) && {
     m_style.top = val;
     return std::move(*this);
   }
 
-  /** @brief Set bottom inset coordinate for absolute positioning. */
   Modifier bottom(float val) && {
     m_style.bottom = val;
     return std::move(*this);
   }
 
-  /** @brief Set 2D transform origin pivot point (0.0 to 1.0 normalized). */
   Modifier transformOrigin(float x, float y) && {
     m_style.transformOrigin = glm::vec2(x, y);
     return std::move(*this);
   }
 
-  /** @brief Set post-layout translate offset. */
   Modifier translate(float x, float y) && {
     m_style.translate = glm::vec2(x, y);
     return std::move(*this);
   }
 
-  /** @brief Set width and height dimensions simultaneously. Pass -1 for
-   * FIT/GROW fallback. */
   Modifier size(float width, float height) && {
     m_style.width =
         (width != -1.0f) ? std::optional<float>(width) : std::nullopt;
@@ -324,7 +450,6 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Set uniform square size for both width and height. */
   Modifier size(float squareSize) && {
     m_style.width =
         (squareSize != -1.0f) ? std::optional<float>(squareSize) : std::nullopt;
@@ -333,30 +458,23 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Set explicit width in pixels. Pass -1 for default layout fallback.
-   */
   Modifier width(float width) && {
     m_style.width =
         (width != -1.0f) ? std::optional<float>(width) : std::nullopt;
     return std::move(*this);
   }
 
-  /** @brief Set explicit height in pixels. Pass -1 for default layout fallback.
-   */
   Modifier height(float height) && {
     m_style.height =
         (height != -1.0f) ? std::optional<float>(height) : std::nullopt;
     return std::move(*this);
   }
 
-  /** @brief Set uniform corner radius on all 4 corners. */
   Modifier rounded(float radius) && {
     m_style.borderRadius = glm::vec4(radius);
     return std::move(*this);
   }
 
-  /** @brief Set individual corner radii (TopLeft, TopRight, BottomLeft,
-   * BottomRight). */
   Modifier rounded(float topLeft, float topRight, float bottomLeft,
                    float bottomRight) && {
     m_style.borderRadius =
@@ -364,33 +482,29 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Set corner radius vector directly (x=TL, y=TR, z=BL, w=BR). */
   Modifier rounded(const glm::vec4 &radii) && {
     m_style.borderRadius = radii;
     return std::move(*this);
   }
 
-  /** @brief Set border stroke color and thickness. */
   Modifier border(const glm::vec4 &color, float thickness) && {
     m_style.strokeColor = color;
     m_style.strokeThickness = glm::vec4(thickness);
     return std::move(*this);
   }
-  /** @brief Set border stroke color and thickness. */
+
   Modifier border(const glm::vec4 &color, glm::vec4 thickness) && {
     m_style.strokeColor = color;
     m_style.strokeThickness = thickness;
     return std::move(*this);
   }
 
-  /** @brief overloaded helper to 0 out border quickly */
   Modifier borderless() {
     m_style.strokeColor = glm::vec4(0.0f);
     m_style.strokeThickness = glm::vec4(0.0f);
     return std::move(*this);
   }
 
-  /** @brief Set uniform padding on all 4 sides. */
   Modifier padding(uint16_t all) && {
     m_style.padLeft = all;
     m_style.padRight = all;
@@ -399,7 +513,6 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Set horizontal and vertical padding. */
   Modifier padding(uint16_t horizontal, uint16_t vertical) && {
     m_style.padLeft = horizontal;
     m_style.padRight = horizontal;
@@ -408,7 +521,6 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Set individual padding for Left, Right, Top, and Bottom. */
   Modifier padding(uint16_t left, uint16_t right, uint16_t top,
                    uint16_t bottom) && {
     m_style.padLeft = left;
@@ -418,79 +530,63 @@ public:
     return std::move(*this);
   }
 
-  /** @brief Set gap spacing between child elements. */
   Modifier gap(uint16_t spacing) && {
     m_style.childGap = spacing;
     return std::move(*this);
   }
 
-  /** @brief Set horizontal child alignment. */
   Modifier alignX(AlignmentX alignment) && {
     m_style.alignX = alignment;
     return std::move(*this);
   }
 
-  /** @brief Set vertical child alignment. */
   Modifier alignY(AlignmentY alignment) && {
     m_style.alignY = alignment;
     return std::move(*this);
   }
 
-  /** @brief Center children along both horizontal and vertical axes. */
   Modifier center() && {
     m_style.alignX = AlignmentX::Center;
     m_style.alignY = AlignmentY::Center;
     return std::move(*this);
   }
 
-  /** @brief Set 2D child alignment struct. */
   Modifier childAlignment(Alignment alignment) && {
     m_style.alignX = alignment.x;
     m_style.alignY = alignment.y;
     return std::move(*this);
   }
 
-  /** @brief Set CSS object-fit layout mode. */
   Modifier objectFit(ObjectFit fit) && {
     m_style.objectFit = fit;
     return std::move(*this);
   }
 
-  /** @brief Set object-fit to Cover. */
   Modifier cover() && {
     m_style.objectFit = ObjectFit::Cover;
     return std::move(*this);
   }
 
-  /** @brief Set object-fit to Contain. */
   Modifier contain() && {
     m_style.objectFit = ObjectFit::Contain;
     return std::move(*this);
   }
 
-  /** @brief Custom UV texture bounds (uMin, vMin, uMax, vMax). */
   Modifier uv(float minU, float minV, float maxU, float maxV) && {
     m_style.uvBounds = glm::vec4(minU, minV, maxU, maxV);
     return std::move(*this);
   }
 
-  /** @brief Custom UV texture bounds vector. */
   Modifier uv(const glm::vec4 &bounds) && {
     m_style.uvBounds = bounds;
     return std::move(*this);
   }
 
-  /** @brief Apply a custom Gradient struct. */
   Modifier gradient(const Gradient &grad) && {
     m_style.gradient = grad;
     return std::move(*this);
   }
 
-  /**
-   * @brief 2-Color Linear Gradient with Angle in degrees.
-   * @param angleDegrees 180.0f = to bottom, 90.0f = to right, 45.0f = top-left
-   * to bottom-right.
-   */
   Modifier linearGradient(float angleDegrees, const glm::vec4 &startColor,
                           const glm::vec4 &endColor,
                           ColorSpace space = ColorSpace::OKLab) && {
@@ -503,7 +599,6 @@ public:
     return std::move(*this);
   }
 
-  /** @brief 2-Color Linear Gradient defaulting to top-to-bottom (180deg). */
   Modifier linearGradient(const glm::vec4 &startColor,
                           const glm::vec4 &endColor,
                           float angleDegrees = 180.0f,
@@ -512,9 +607,6 @@ public:
                                            space);
   }
 
-  /**
-   * @brief Multi-stop Linear Gradient with Angle in degrees.
-   */
   Modifier linearGradient(float angleDegrees,
                           const std::vector<GradientStop> &stops,
                           ColorSpace space = ColorSpace::OKLab) && {
@@ -527,10 +619,6 @@ public:
     return std::move(*this);
   }
 
-  /**
-   * @brief 2-Color Radial Gradient with custom focal center (0.5, 0.5 =
-   * center).
-   */
   Modifier radialGradient(const glm::vec2 &center, const glm::vec4 &innerColor,
                           const glm::vec4 &outerColor,
                           ColorSpace space = ColorSpace::OKLab) && {
@@ -543,9 +631,6 @@ public:
     return std::move(*this);
   }
 
-  /**
-   * @brief Multi-stop Radial Gradient.
-   */
   Modifier radialGradient(const glm::vec2 &center,
                           const std::vector<GradientStop> &stops,
                           ColorSpace space = ColorSpace::OKLab) && {

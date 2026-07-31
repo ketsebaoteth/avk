@@ -1,6 +1,7 @@
 #include "avk/utils/ui/layout.h"
-#include "ui/animation/animation.h"
 #include "ui/components.h"
+#include "ui/motion/AtomicMotion.h"
+
 #include <chrono>
 #include <functional>
 #include <unordered_map>
@@ -9,7 +10,7 @@ namespace atomicComponents {
 
 /**
  * @brief Floating animated toast component with configurable delay, direction,
- * and a polished light theme style.
+ * and a polished light theme style powered by Atomic.Motion.
  */
 void Toast(std::function<void()> triggerCallback,
            std::function<void()> toastContentCallback,
@@ -43,13 +44,22 @@ void Toast(std::function<void()> triggerCallback,
     showToast = isHovered;
   }
 
+  auto *uiState = atomic::getUiState();
+  using atomic::motion::MotionHandle;
+
   float targetOpacity = showToast ? 1.0f : 0.0f;
-  float opacity =
-      atomic::AnimateFloat(toastAnimId, targetOpacity, config.duration,
-                           atomic::Curves::AppleEaseOut);
-  float scale =
-      atomic::AnimateFloat(toastAnimId + 0x1000, showToast ? 1.0f : 0.95f,
-                           config.duration, atomic::Curves::AppleEaseOut);
+  float opacity = targetOpacity;
+  float scale = showToast ? 1.0f : 0.95f;
+
+  if (uiState) {
+    opacity = uiState->motionManager.animate<float>(
+        MotionHandle{toastAnimId}, targetOpacity, config.duration,
+        atomic::motion::AnimationCurve::EaseOut());
+
+    scale = uiState->motionManager.animate<float>(
+        MotionHandle{toastAnimId + 0x1000}, showToast ? 1.0f : 0.95f,
+        config.duration, atomic::motion::AnimationCurve::EaseOut());
+  }
 
   atomic::Interaction trigger =
       atomic::Row(atomic::Modifier().relative(), [&]() {
@@ -86,7 +96,6 @@ void Toast(std::function<void()> triggerCallback,
             break;
           }
 
-          // Light theme styling matching the macOS/editor aesthetic
           glm::vec4 lightBg = {0.98f, 0.98f, 0.99f, 0.95f * opacity};
           glm::vec4 lightBorder = {0.85f, 0.85f, 0.88f, 1.0f * opacity};
 
