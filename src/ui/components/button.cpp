@@ -45,7 +45,7 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content) {
   if (!rawStyle.fontWeight.has_value())
     btnStyle = std::move(btnStyle).fontWeight(500.0f);
   if (!rawStyle.padLeft.has_value())
-    btnStyle = std::move(btnStyle).padding(16, 8);
+    btnStyle = std::move(btnStyle).padding(16, 14);
   if (!rawStyle.strokeColor.has_value())
     btnStyle = std::move(btnStyle).border(Colors::transparent, 1);
   if (!rawStyle.strokeThickness.has_value())

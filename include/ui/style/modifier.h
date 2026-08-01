@@ -1,6 +1,8 @@
 #pragma once
 
+#include "avk/utils/ui/layout.h"
 #include "glm/glm.hpp"
+#include "ui/internal/cascadingStyle.h"
 #include "ui/internal/context.h"
 #include "ui/motion/AtomicMotion.h"
 #include "ui/style/style.h"
@@ -228,6 +230,16 @@ public:
 
   Modifier font(uint32_t fontId) && {
     m_style.fontId = fontId;
+    return std::move(*this);
+  }
+
+  Modifier textWrap(TextWrap wrap) && {
+    m_style.textWrap = wrap;
+    return std::move(*this);
+  }
+
+  Modifier textAlign(TextAlign align) && {
+    m_style.textAlign = align;
     return std::move(*this);
   }
 
@@ -471,6 +483,9 @@ public:
   }
 
   Modifier rounded(float radius) && {
+    // atomic::CascadingStyle cstyle =
+    // utils::layout::getComputedStyle(m_style.); std::clamp(radius, 0,
+    // std::min(m_style.width, m_style.height) / 2);
     m_style.borderRadius = glm::vec4(radius);
     return std::move(*this);
   }

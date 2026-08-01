@@ -70,6 +70,7 @@ struct UIState {
   std::unordered_map<uint32_t, CascadingStyle> computedStyleMap;
   atomic::motion::MotionManager motionManager;
 
+  std::vector<float> textConstraintWidthStack;
   // Lifecycle & interaction state stores (previous frame vs current frame)
   std::unordered_map<uint32_t, ElementLifecycleState> previousLifecycleMap;
   std::unordered_map<uint32_t, ElementLifecycleState> currentLifecycleMap;

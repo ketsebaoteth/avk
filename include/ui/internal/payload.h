@@ -18,6 +18,7 @@ struct RenderPayload {
   float blur = 0.0f;
   glm::vec2 transformOrigin{0.5f, 0.5f};
   glm::vec2 translate{0.0f, 0.0f};
+  float textMaxWidth = 0.0f; // available width for wrapping (0 = unknown)
   float textOffset = 0.0f;
   std::vector<BoxShadow> boxShadows;
   std::optional<Gradient> gradient;
@@ -26,5 +27,8 @@ struct RenderPayload {
   float fontSize = 16.0f;
   float letterSpacing = 0.0f;
   float fontWeight = 400.0f;
+  float lineHeight = 0.0f; // 0 = Auto
+  std::optional<atomic::TextWrap> textWrap;
+  std::optional<atomic::TextAlign> textAlign;
 };
 } // namespace atomic

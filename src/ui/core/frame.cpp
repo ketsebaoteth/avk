@@ -1,8 +1,9 @@
 #include "ui/core/frame.h"
 #include "Vera/src/vera_windowing/core/app/Types.h"
+#include "avk/avk_font.h"
+#include "avk/avk_textLayout.h"
 #include "ui/core/gradientAtlas.h"
 #include "ui/internal/context.h"
-#include "ui/motion/AtomicMotion.h"
 #include "ui/style/style.h"
 #include "ui/utils/clayUtils.h"
 #include "ui/utils/coreUtils.h"
@@ -48,6 +49,7 @@ bool beginFrame(VeraWindow *window) {
 
   auto state = window->getState();
   setClayDimensions(state);
+  Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
   Clay_BeginLayout();
 
   auto val = session->canvas->beginFrame();
@@ -464,7 +466,9 @@ void endFrame(VeraWindow *window) {
           submitImageShadow(s);
         }
       }
-    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
+    }
+
+    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
       Clay_TextRenderData *textData = &cmd->renderData.text;
 
       if (textData->fontId >= uiState->fonts.size()) {
@@ -472,13 +476,17 @@ void endFrame(VeraWindow *window) {
       }
 
       float fontSize = static_cast<float>(textData->fontSize);
-      [[maybe_unused]] float textOffset = 0.0f;
       float elementScale = 1.0f;
       float elementRotation = 0.0f;
       float letterSpacing = 0.0f;
       float fontWeight = 400.0f;
+      float lineHeight = 0.0f;
+      avk::TextWrapMode wrapMode = avk::TextWrapMode::Word;
+      avk::TextAlignMode alignMode = avk::TextAlignMode::Left;
+
       glm::vec2 transformOrigin(0.5f, 0.5f);
       glm::vec2 translate(0.0f, 0.0f);
+      Clay_BoundingBox renderBox = cmd->boundingBox;
 
       if (cmd->userData != nullptr) {
         auto *payload = static_cast<RenderPayload *>(cmd->userData);
@@ -486,73 +494,60 @@ void endFrame(VeraWindow *window) {
         elementRotation = payload->rotation;
         transformOrigin = payload->transformOrigin;
         translate = payload->translate;
-        textOffset = payload->textOffset;
         letterSpacing = payload->letterSpacing;
         fontWeight = payload->fontWeight;
+        lineHeight = payload->lineHeight;
+
+        if (payload->textWrap.has_value()) {
+          switch (payload->textWrap.value()) {
+          case atomic::TextWrap::Anywhere:
+            wrapMode = avk::TextWrapMode::Anywhere;
+            break;
+          case atomic::TextWrap::Disabled:
+            wrapMode = avk::TextWrapMode::Disabled;
+            break;
+          default:
+            wrapMode = avk::TextWrapMode::Word;
+            break;
+          }
+        }
+
+        if (payload->textAlign.has_value()) {
+          switch (payload->textAlign.value()) {
+          case atomic::TextAlign::Center:
+            alignMode = avk::TextAlignMode::Center;
+            break;
+          case atomic::TextAlign::Right:
+            alignMode = avk::TextAlignMode::Right;
+            break;
+          // case atomic::TextAlign::Justify:
+          //   alignMode = avk::TextAlignMode::Justify;
+          //   break;
+          default:
+            alignMode = avk::TextAlignMode::Left;
+            break;
+          }
+        }
       }
 
-      const avk::Font &font = *uiState->fonts[textData->fontId];
-      float baseFontSize = (font.getFontSize() > 0)
-                               ? static_cast<float>(font.getFontSize())
-                               : 32.0f;
-      float fontScale = (fontSize > 0.0f) ? (fontSize / baseFontSize) : 1.0f;
+      avk::Font &font = *uiState->fonts[textData->fontId];
+      std::string textStr(textData->stringContents.chars,
+                          textData->stringContents.length);
 
-      float cursorX = cmd->boundingBox.x;
-      float cursorY = cmd->boundingBox.y;
-
-      float fontAscent = font.getAscent(fontSize);
-      float fontLineHeight = font.getLineHeight(fontSize);
-
-      float rawBaselineY = cursorY +
-                           ((cmd->boundingBox.height - fontLineHeight) * 0.5f) +
-                           fontAscent;
-
-      float snappedBaselineY = std::floor(rawBaselineY + 3.5f);
-
-      glm::vec4 textColor = glm::vec4(
+      glm::vec4 textColor(
           textData->textColor.r / 255.0f, textData->textColor.g / 255.0f,
           textData->textColor.b / 255.0f, textData->textColor.a / 255.0f);
 
-      uint32_t charIndex = 0;
-      int32_t stringLength = textData->stringContents.length;
+      glm::vec2 position(renderBox.x, renderBox.y);
 
-      while (charIndex < static_cast<uint32_t>(stringLength)) {
-        uint32_t codepoint = decodeNextUtf8(textData->stringContents.chars,
-                                            stringLength, charIndex);
-        if (codepoint == 0)
-          break;
+      // Submit fully-customized CSS text layout
+      auto instances = font.layoutText(
+          textStr, position, renderBox, textColor, fontSize, letterSpacing,
+          fontWeight, activeClipRect, elementScale, elementRotation,
+          transformOrigin, translate, lineHeight, wrapMode, alignMode);
 
-        const avk::Glyph &glyph = font.getGlyph(codepoint);
-
-        float posX = std::floor(cursorX + (glyph.bearing.x * fontScale) + 0.5f);
-        float posY = snappedBaselineY - (glyph.bearing.y * fontScale);
-        float posW = std::floor(glyph.size.x * fontScale + 0.5f);
-        float posH = std::floor(glyph.size.y * fontScale + 0.5f);
-
-        glm::vec4 bounds = getPivotTransformedCoords(
-            Clay_BoundingBox{posX, posY, posW, posH}, elementScale,
-            elementRotation, transformOrigin, translate);
-
-        avk::InstanceData instance{};
-        instance.rectXYWH =
-            glm::vec4(std::floor(bounds.x + 0.5f), std::floor(bounds.y + 0.5f),
-                      std::floor(bounds.z + 0.5f), std::floor(bounds.w + 0.5f));
-        instance.borderRadius = glm::vec4(0.0f);
-        instance.fillColorA = textColor;
-        instance.uvBounds = glyph.uvBounds;
-        instance.clipRect = activeClipRect;
-        instance.shapeType = 0;
-        instance.fillType = 3;
-        instance.textureIndex = font.getTextureIndex();
-        instance.strokeThickness = glm::vec4(0.0f);
-        instance.blur = 0.0f;
-        instance.scale = elementScale;
-        instance.rotation = elementRotation;
-        instance.fontWeight = fontWeight;
-
+      for (const auto &instance : instances) {
         uiState->renderer->submit(instance);
-
-        cursorX += (glyph.advance * fontScale) + letterSpacing;
       }
     }
   }

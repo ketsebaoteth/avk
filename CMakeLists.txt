@@ -96,10 +96,24 @@ else()
   FetchContent_MakeAvailable(harfbuzz)
 endif()
 
+# SheenBidi (BiDi Engine)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/SheenBidi/CMakeLists.txt")
+  add_subdirectory(thirdparty/SheenBidi)
+else()
+  message(STATUS "thirdparty/SheenBidi not found. Fetching via FetchContent...")
+  FetchContent_Declare(
+      SheenBidi
+      GIT_REPOSITORY https://github.com/Tehreer/SheenBidi.git
+      GIT_TAG v2.6.0
+      GIT_SHALLOW TRUE
+  )
+  FetchContent_MakeAvailable(SheenBidi)
+endif()
+
 # FreeType (Must be added BEFORE msdfgen so msdfgen-ext detects FreeType!)
-set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_ZLIB OFF CACHE BOOL "" FORCE)
 set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
-set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+set(FT_DISABLE_PNG OFF CACHE BOOL "" FORCE)
 set(FT_DISABLE_HARFBUZZ OFF CACHE BOOL "" FORCE)
 add_subdirectory(thirdparty/freetype)
 
@@ -158,46 +172,38 @@ set(GENERATED_FONTS_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated_fonts")
 
 function(atomic_add_font)
   cmake_parse_arguments(ARG "" "FONT;ATLAS_SIZE" "" ${ARGN})
-
   if(NOT ARG_FONT)
     message(FATAL_ERROR "atomic_add_font: FONT argument is required!")
   endif()
-
   if(NOT ARG_ATLAS_SIZE)
-    set(ARG_ATLAS_SIZE 512)
+    set(ARG_ATLAS_SIZE 2048)
   endif()
-
   get_filename_component(FONT_NAME ${ARG_FONT} NAME_WE)
-
   set(PNG_OUTPUT "${GENERATED_FONTS_DIR}/${FONT_NAME}_atlas.png")
   set(CSV_OUTPUT "${GENERATED_FONTS_DIR}/${FONT_NAME}_metrics.csv")
-
-  # Set a larger atlas size specifically for the large Lucide icon set
   if("${FONT_NAME}" STREQUAL "lucide")
     set(LUCIDE_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/include/ui/generated/lucideIcons.generated.h")
     set(SCRIPT_PATH "${CMAKE_CURRENT_SOURCE_DIR}/include/ui/generated/genUnicodeForMsdf.py")
     set(CHARSET_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/lucide_charset.txt")
-
     add_custom_command(
-      OUTPUT ${CHARSET_OUTPUT}
-      COMMAND python3 "${SCRIPT_PATH}" "${LUCIDE_HEADER}" "${CHARSET_OUTPUT}"
-      DEPENDS "${LUCIDE_HEADER}" "${SCRIPT_PATH}"
-      COMMENT "Generating Lucide charset file for MSDF generator"
+        OUTPUT ${CHARSET_OUTPUT}
+        COMMAND python3 "${SCRIPT_PATH}" "${LUCIDE_HEADER}" "${CHARSET_OUTPUT}"
+        DEPENDS "${LUCIDE_HEADER}" "${SCRIPT_PATH}"
+        COMMENT "Generating Lucide charset file for MSDF generator"
     )
-
     set(CHARSET_ARG -charset ${CHARSET_OUTPUT})
     set(CHARSET_DEPENDENCY ${CHARSET_OUTPUT})
-    set(CURRENT_ATLAS_SIZE 4096) # <--- Scaled up to fit all 1759 icons
+    set(CURRENT_ATLAS_SIZE 4096)
   else()
-    set(CHARSET_ARG "")
-    set(CHARSET_DEPENDENCY "")
+    set(CHARSET_FILE "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/charset.txt")
+    set(CHARSET_ARG -charset ${CHARSET_FILE})
+    set(CHARSET_DEPENDENCY ${CHARSET_FILE})
     set(CURRENT_ATLAS_SIZE ${ARG_ATLAS_SIZE})
   endif()
-
   add_custom_command(
     OUTPUT ${PNG_OUTPUT} ${CSV_OUTPUT}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${GENERATED_FONTS_DIR}
-    COMMAND $<TARGET_FILE:msdf-atlas-gen-standalone>
+    COMMAND msdf-atlas-gen-standalone
           -font ${ARG_FONT}
           -type mtsdf
           -overlap
@@ -206,7 +212,7 @@ function(atomic_add_font)
           ${CHARSET_ARG}
           -pxrange 8
           -size 32
-          -dimensions ${CURRENT_ATLAS_SIZE} ${CURRENT_ATLAS_SIZE} # <--- Uses the dynamic size
+          -pots
           -imageout ${PNG_OUTPUT}
           -csv ${CSV_OUTPUT}
     DEPENDS ${ARG_FONT} msdf-atlas-gen-standalone ${CHARSET_DEPENDENCY}
@@ -215,9 +221,7 @@ function(atomic_add_font)
   set(TARGET_NAME "gen_font_${FONT_NAME}")
   add_custom_target(${TARGET_NAME} DEPENDS ${PNG_OUTPUT} ${CSV_OUTPUT})
   add_dependencies(avk_engine ${TARGET_NAME})
-endfunction()
-
-# =============================================================================
+endfunction() # =============================================================================
 # 4. ENGINE TARGET
 # =============================================================================
 file(GLOB_RECURSE AVK_SOURCES CONFIGURE_DEPENDS
@@ -240,6 +244,7 @@ target_include_directories(avk_engine PUBLIC
     thirdparty/
     thirdparty/volk
     thirdparty/harfbuzz/src
+    thirdparty/SheenBidi/Headers
     thirdparty/msdfgen
     thirdparty/msdf-atlas-gen
     thirdparty/Vera/src/vera_windowing/
@@ -255,6 +260,7 @@ target_link_libraries(avk_engine PUBLIC
     glm
     freetype
     harfbuzz
+    SheenBidi
     msdfgen-core
     msdfgen-ext
     msdf-atlas-gen
@@ -312,6 +318,6 @@ add_custom_command(
     TARGET avk_example POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets"
-            "$<TARGET_FILE_DIR:avk_example>/assets"
+            "$/assets"
     COMMENT "Syncing assets folder to target build directory..."
 )

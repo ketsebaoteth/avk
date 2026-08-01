@@ -150,7 +150,7 @@ void main() {
         fillColor.rgb = oklab_to_srgb(labMix);
         fillColor.a = mix(inFillColorA.a, inFillColorB.a, t);
     } else if (inFillType == 8) { 
-        // Multi-Stop 1D Texture Atlas Gradient (Handles 3, 7, 20+ stops!)
+        // Multi-Stop 1D Texture Atlas Gradient
         vec2 dir = inGradientEnd - inGradientStart;
         float lenSq = dot(dir, dir);
         if (lenSq > 0.0001) {
@@ -158,11 +158,10 @@ void main() {
             vec2 normCoord = localPixelPos / inRectXYWH.zw;
             float t = clamp(dot(normCoord - inGradientStart, dir) / lenSq, 0.0, 1.0);
 
-            // Sample 1D Gradient Atlas Texture!
             fillColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], vec2(t, 0.5));
         }
     } else if (inFillType == 3) {
-        // MTSDF Text Rendering
+        // MTSDF Text Rendering (Razor-Sharp Anti-Aliased Vector Font)
         vec2 safeUV = clamp(inUV, inUvBounds.xy, inUvBounds.zw);
         vec4 msd = texture(globalTextures[nonuniformEXT(inTextureIndex)], safeUV);
 
@@ -173,36 +172,32 @@ void main() {
             sd = trueSDF;
         }
 
-        float weightShift = (inFontWeight - 400.0) * 0.0003;
+        float actualWeight = inFontWeight > 10.0 ? inFontWeight : 400.0;
+        float weightShift = (actualWeight - 400.0) * 0.0003;
         sd += weightShift;
 
-        const float pxRange = 9.0;
-
+        const float pxRange = 8.0;
         vec2 unitRange = vec2(pxRange) / vec2(textureSize(globalTextures[nonuniformEXT(inTextureIndex)], 0));
         vec2 dx = dFdx(safeUV);
         vec2 dy = dFdy(safeUV);
-        vec2 screenTexSize = inversesqrt(dx*dx + dy*dy);
+        vec2 screenTexSize = inversesqrt(dx * dx + dy * dy);
         float screenPxRange = max(0.5 * dot(unitRange, screenTexSize), 1.0);
 
         float screenPxDistance = screenPxRange * (sd - 0.5);
 
         float opacity = clamp(screenPxDistance * 1.25 + 0.5, 0.0, 1.0);
 
-        outColor = vec4(inFillColorA.rgb, inFillColorA.a * opacity);
+        float finalAlpha = (inFillColorA.a > 0.01) ? inFillColorA.a : 1.0;
+        outColor = vec4(inFillColorA.rgb, finalAlpha * opacity);
+        
         if (outColor.a < 0.001) discard;
         return;
-    } else if (inFillType == 4) { 
-        // Image Rendering
-        vec2 uv = mix(inUvBounds.xy, inUvBounds.zw, inUV);
-        vec4 texColor = (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) 
-            ? vec4(0.0) 
-            : texture(globalTextures[nonuniformEXT(inTextureIndex)], uv);
+    } else if (inFillType == 7) {
+        // Standard RGBA Image & Color Emoji Texture Sampling
+        vec2 safeUV = clamp(inUV, inUvBounds.xy, inUvBounds.zw);
+        vec4 texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], safeUV);
+        outColor = texColor * inFillColorA;
         
-        vec4 finalColor = texColor * inFillColorB;
-        float aaWidth = (0.75 + inBlur) * max(inScale, 0.0001);
-        float alpha = 1.0 - smoothstep(-aaWidth, aaWidth, d);
-
-        outColor = vec4(finalColor.rgb, finalColor.a * alpha);
         if (outColor.a < 0.001) discard;
         return;
     } else if (inFillType == 5) {

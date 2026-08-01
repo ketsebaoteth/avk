@@ -1,116 +1,117 @@
 #pragma once
 
-#include "avk_allocator.h"
-#include <glm/glm.hpp>
-#include <span>
-#include <string>
+#include "avk/avk_textLayout.h"
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
+#include "avk/avk_allocator.h"
+#include "avk/avk_renderer.h"
+#include "clay.h"
+
+#include <glm/vec2.hpp>
+#include <glm/vec4.hpp>
+#include <harfbuzz/hb-ft.h>
+#include <harfbuzz/hb.h>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
-#include <volk.h>
-
-typedef struct hb_font_t hb_font_t;
 
 namespace avk {
 
-class VulkanContext;
-
-/**
- * @brief Glyph layout metrics and UV coordinates inside the font atlas.
- */
-struct Glyph {
-  glm::vec2 size;     // Pixel dimensions of the glyph
-  glm::vec2 bearing;  // Offset from baseline to top-left of the glyph
-  float advance;      // Horizontal advance to the next character
-  glm::vec4 uvBounds; // [uMin, vMin, uMax, vMax] inside the atlas
+struct GlyphMetrics {
+  uint32_t codepoint{0};
+  float advance{0.0f};
+  float planeLeft{0.0f}, planeBottom{0.0f}, planeRight{0.0f}, planeTop{0.0f};
+  float atlasLeft{0.0f}, atlasBottom{0.0f}, atlasRight{0.0f}, atlasTop{0.0f};
 };
 
-/**
- * @brief RAII Font Loader supporting MSDF Vector Atlases, Memory Byte Buffers,
- * and OS System Fonts.
- */
 class Font {
 public:
-  /// MSDF Vector Font Constructor (Atlas PNG Path + CSV Metrics Path)
-  Font(VulkanContext *context, const std::string &atlasImagePath,
-       const std::string &metricsCsvPath);
-
-  /// In-Memory MSDF Vector Font Constructor (PNG Bytes + CSV String)
-  Font(VulkanContext *context, std::span<const uint8_t> atlasPngBytes,
-       const std::string &metricsCsvContent);
-
-  /// Direct TTF File / Fallback Font Constructor
-  Font(VulkanContext *context, const std::string &filePath, uint32_t fontSize,
-       const std::vector<uint32_t> &codepoints = {});
-
+  Font() = default;
   ~Font();
 
   Font(const Font &) = delete;
   Font &operator=(const Font &) = delete;
+  Font(Font &&) noexcept = default;
+  Font &operator=(Font &&) noexcept = default;
 
-  Font(Font &&other) noexcept;
-  Font &operator=(Font &&other) noexcept;
+  bool loadFromFile(const char *ttfPath, const char *csvPath, float pixelSize,
+                    GpuAllocator *allocator, uint32_t fontTextureSlot,
+                    uint32_t emojiTextureSlot, uint32_t fontAtlasWidth = 1024,
+                    uint32_t fontAtlasHeight = 1024);
 
-  /**
-   * @brief Resolves an OS system font name (e.g. "Segoe UI", "San Francisco",
-   * "Arial") to a disk path.
-   */
-  static std::string resolveSystemFontPath(const std::string &fontName);
+  bool loadEmojiGlyph(uint32_t glyphIndex, std::vector<uint8_t> &outPixels,
+                      uint32_t &outWidth, uint32_t &outHeight);
 
-  /**
-   * @brief Measures the bounding width and height of a string in pixels.
-   */
-  [[nodiscard]] glm::vec2 measureText(const std::string &text,
-                                      float fontSize) const;
+  std::vector<avk::InstanceData>
+  layoutText(std::string_view text, glm::vec2 position,
+             const Clay_BoundingBox &box, const glm::vec4 &color,
+             float fontSize, float letterSpacing, float fontWeight,
+             const glm::vec4 &clipRect, float scale, float rotation,
+             const glm::vec2 &transformOrigin, const glm::vec2 &translate,
+             float lineHeight, avk::TextWrapMode wrapMode,
+             avk::TextAlignMode alignMode);
 
-  [[nodiscard]] uint32_t getTextureIndex() const { return m_textureIndex; }
+  [[nodiscard]] glm::vec2
+  measureText(std::string_view text, float fontSize = 0.0f,
+              float maxWidth = 0.0f,
+              avk::TextWrapMode wrapMode = avk::TextWrapMode::Word,
+              float lineHeight = 0.0f,
+              avk::TextAlignMode alignMode = avk::TextAlignMode::Left) const;
 
-  /// Returns scaled line height at target fontSize (or raw m_lineHeight if
-  /// fontSize == 0)
-  [[nodiscard]] float getLineHeight(float fontSize = 0.0f) const {
-    float baseSize = (m_fontSize > 0) ? static_cast<float>(m_fontSize) : 32.0f;
-    float scale = (fontSize > 0.0f) ? (fontSize / baseSize) : 1.0f;
-    return m_lineHeight * scale;
+  [[nodiscard]] float getLineHeight(float fontSize = 0.0f) const;
+  [[nodiscard]] float getAscent(float fontSize = 0.0f) const;
+
+  static std::string resolveSystemFontPath(std::string_view fontName);
+
+  [[nodiscard]] hb_font_t *getHbFont() const { return m_hbFont; }
+  [[nodiscard]] uint32_t getEmojiTextureSlot() const {
+    return m_emojiTextureSlot;
   }
-
-  /// Returns scaled cap ascent at target fontSize (or raw m_ascent if fontSize
-  /// == 0)
-  [[nodiscard]] float getAscent(float fontSize = 0.0f) const {
-    float baseSize = (m_fontSize > 0) ? static_cast<float>(m_fontSize) : 32.0f;
-    float scale = (fontSize > 0.0f) ? (fontSize / baseSize) : 1.0f;
-    return m_ascent * scale;
+  [[nodiscard]] uint32_t getFontTextureSlot() const {
+    return m_fontTextureSlot;
   }
-
-  [[nodiscard]] uint32_t getFontSize() const { return m_fontSize; }
-
-  [[nodiscard]] const Glyph &getGlyph(uint32_t codepoint) const {
-    auto it = m_glyphs.find(codepoint);
-    if (it != m_glyphs.end()) {
-      return it->second;
-    }
-    return m_glyphs.empty() ? m_fallbackGlyph : m_glyphs.begin()->second;
-  }
+  [[nodiscard]] float getFontSize() const { return m_pixelSize; }
 
 private:
-  void release();
-  bool buildAtlasFromMemory(std::span<const uint8_t> fontBytes,
-                            uint32_t fontSize,
-                            const std::vector<uint32_t> &codepoints);
-  bool parseMetricsCsv(const std::string &csvContent, uint32_t atlasWidth,
-                       uint32_t atlasHeight);
+  bool loadMetricsCsv(const char *csvPath);
+  bool isEmojiGlyph(uint32_t glyphIndex);
+  glm::vec4 allocateAndUploadEmoji(uint32_t glyphIndex,
+                                   const std::vector<uint8_t> &pixels,
+                                   uint32_t width, uint32_t height);
 
-  VulkanContext *m_context = nullptr;
-  AllocatedImage m_atlasImage;
-  VkImageView m_atlasView = VK_NULL_HANDLE;
-  uint32_t m_textureIndex = 0;
+  FT_Face m_ftFace{nullptr};
+  FT_Face m_ftEmojiFace;
+  hb_font_t *m_hbFont{nullptr};
+  float m_pixelSize{32.0f};
 
-  float m_lineHeight = 24.0f;
-  float m_ascent = 18.0f;
-  uint32_t m_fontSize = 16;
+  // ✅ SEPARATE MAPS TO PREVENT KEY COLLISION CLOBBERING
+  std::unordered_map<uint32_t, GlyphMetrics>
+      m_glyphIndexMetricsMap; // Keyed by FreeType Glyph Index
+  std::unordered_map<uint32_t, GlyphMetrics>
+      m_codepointMetricsMap; // Keyed by Unicode Codepoint
 
-  std::unordered_map<uint32_t, Glyph> m_glyphs;
-  Glyph m_fallbackGlyph{};
-  hb_font_t *m_hbFont = nullptr;
-  std::vector<uint8_t> m_retainedFontBuffer;
+  std::unordered_map<uint32_t, glm::vec4> m_emojiUvMap;
+
+  GpuAllocator *m_allocator{nullptr};
+  AllocatedImage m_emojiAtlasImage{};
+  VkImageLayout m_emojiAtlasLayout{VK_IMAGE_LAYOUT_UNDEFINED};
+  VkImageView m_emojiImageView{VK_NULL_HANDLE};
+
+  uint32_t m_fontTextureSlot{0};
+  uint32_t m_emojiTextureSlot{0};
+
+  uint32_t m_fontAtlasWidth{1024};
+  uint32_t m_fontAtlasHeight{1024};
+
+  uint32_t m_emojiAtlasWidth{1024};
+  uint32_t m_emojiAtlasHeight{1024};
+  uint32_t m_shelfX{0};
+  uint32_t m_shelfY{0};
+  uint32_t m_rowHeight{0};
+
+  bool m_isIconFont;
+  static constexpr uint32_t m_atlasPadding{2};
 };
 
 } // namespace avk

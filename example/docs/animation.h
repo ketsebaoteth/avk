@@ -90,7 +90,10 @@ inline void drawAnimationDoc(
           "pointer input), the engine intercepts the trajectory, captures "
           "the current instantaneous velocity, and recalculates the path "
           "from the current runtime state to prevent position discontinuities.",
-          DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+          DefaultModifier()
+              .fontSize(13)
+              .textWrap(TextWrap::Anywhere)
+              .textColor(Colors::black[500]));
 
       Div(DefaultModifier()
               .widthGrow()

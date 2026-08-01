@@ -1,6 +1,7 @@
 #include "avk/utils/ui/layout.h"
 #include "core/app/App.h"
 #include "core/app/Types.h"
+#include "docs/input.h"
 #include "ui/components.h"
 #include "ui/core/frame.h"
 #include "ui/core/resources.h"
@@ -60,7 +61,7 @@ void drawDocHeader(const std::string &title, const std::string &subtitle,
 
   Column(DefaultModifier().gap(10).widthGrow(), [&]() {
     Row(DefaultModifier().widthGrow().center(), [&]() {
-      Text(title, DefaultModifier().fontSize(40).fontWeight(700).textColor(
+      Text(title, DefaultModifier().fontSize(50).fontWeight(700).textColor(
                       Colors::black[1000]));
       Div(DefaultModifier().widthGrow());
 
@@ -130,8 +131,11 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
                                               {Colors::transparent, 0.8f},
                                           }));
 
-          Text("Gallery", DefaultModifier().fontSize(20).fontWeight(600).color(
-                              "#000000"_hex));
+          Text("Gallery", DefaultModifier()
+                              .background(Colors::red[1000])
+                              .fontSize(50)
+                              .fontWeight(600)
+                              .color("#000000"_hex));
           TextInput(searchInput, "search ...",
                     DefaultModifier().id("searchField").width(500));
 
@@ -145,6 +149,10 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
                 if (TabButton("divTab", "Div", activeTab)) {
                   activeTab = "divTab";
                   docNav.push("divTab");
+                }
+                if (TabButton("inputTab", "Text Input", activeTab)) {
+                  activeTab = "inputTab";
+                  docNav.push("inputTab");
                 }
                 if (TabButton("animationTab", "Animation Engine", activeTab)) {
                   activeTab = "animationTab";
@@ -174,6 +182,8 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
                   atomic::docs::drawButtonDoc(headerBinder);
                 } else if (activeTab == "divTab") {
                   atomic::docs::drawDivDoc(headerBinder);
+                } else if (activeTab == "inputTab") { // <-- ADD THIS
+                  atomic::docs::drawInputDoc(headerBinder);
                 } else if (activeTab == "animationTab") {
                   atomic::docs::drawAnimationDoc(headerBinder);
                 }

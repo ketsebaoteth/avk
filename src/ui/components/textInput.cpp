@@ -91,7 +91,6 @@ uint32_t getWordEndIndex(const std::string &str, uint32_t index) {
     return len;
 
   uint32_t idx = index;
-  // Scan forward until we hit whitespace or punctuation (end of current word)
   while (idx < len) {
     char c = str[idx];
     if (c == ' ' || c == '\t' || c == ',' || c == '.')
@@ -100,6 +99,7 @@ uint32_t getWordEndIndex(const std::string &str, uint32_t index) {
   }
   return idx;
 }
+
 size_t getCodepointCount(const std::string &str) {
   size_t count = 0;
   uint32_t idx = 0;
@@ -192,7 +192,7 @@ bool validateChar(uint32_t codepoint, const std::string &text, uint32_t pos,
 
 uint32_t findWhereCursorLanded(const std::string &displayString,
                                avk::Font *font, float relativeMouseX,
-                               float fontSize) {
+                               float physicalFontSize) {
   if (displayString.empty() || !font || relativeMouseX <= 0.0f) {
     return 0;
   }
@@ -202,7 +202,7 @@ uint32_t findWhereCursorLanded(const std::string &displayString,
     uint32_t nextI = getNextCharIndex(displayString, i);
 
     float currentWidth =
-        font->measureText(displayString.substr(0, nextI), fontSize).x;
+        font->measureText(displayString.substr(0, nextI), physicalFontSize).x;
 
     float midPoint = (prevWidth + currentWidth) * 0.5f;
     if (relativeMouseX < midPoint) {
@@ -271,7 +271,17 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   const auto &finalStyle = containerStyle.getStyle();
 
-  float fontSize = finalStyle.fontSize.value_or(14.0f);
+  // Compute effective physical DPI scale matching atomic::Text
+  constexpr float BASE_UI_SCALE = 2.0f;
+  float monitorDpi =
+      (getVeraApp() && getVeraApp()->getPrimaryMonitor().dpiScale > 0.0f)
+          ? getVeraApp()->getPrimaryMonitor().dpiScale
+          : 1.0f;
+  float effectiveScale = monitorDpi * BASE_UI_SCALE;
+
+  float logicalFontSize = finalStyle.fontSize.value_or(14.0f);
+  float physicalFontSize = logicalFontSize * effectiveScale;
+
   float fontWeight = finalStyle.fontWeight.value_or(300.0f);
   glm::vec4 textColor = finalStyle.textColor.value_or(Colors::black[900]);
 
@@ -281,7 +291,6 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   auto &inputState = uiState->inputStateMap[elementId];
 
-  // Clear selection highlights automatically when element loses focus
   if (!isFocused) {
     inputState.selectionStart = 0;
     inputState.selectionEnd = 0;
@@ -331,13 +340,12 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
 
       if (isBoxHovered && uiState->pointerPressed) {
-        uint32_t landedPos = findWhereCursorLanded(displayString, font,
-                                                   relativeMouseX, fontSize);
+        uint32_t landedPos = findWhereCursorLanded(
+            displayString, font, relativeMouseX, physicalFontSize);
 
         uiState->focusedElementId = elementId;
         isFocused = true;
 
-        // Double-click word selection detection
         auto now = std::chrono::high_resolution_clock::now();
         float timeSinceLastClick =
             std::chrono::duration<float>(now - inputState.lastClickTime)
@@ -357,17 +365,13 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
           inputState.selectionEnd = wEnd;
           inputState.selectionAnchor = wStart;
           inputState.cursorPosition = wEnd;
-
-          // Double-click only selects the word; do not arm text drag here.
         } else if (inputState.selectionStart != inputState.selectionEnd &&
                    landedPos >= inputState.selectionStart &&
                    landedPos <= inputState.selectionEnd) {
-          // Clicked inside an existing selection: arm potential text drag
           inputState.isPotentialTextDrag = true;
           inputState.wasArmedByDoubleClick = false;
           inputState.dragStartMousePos = uiState->pointerPos;
         } else {
-          // Normal click: set cursor and prepare for text drag selection
           inputState.selectionAnchor = landedPos;
           inputState.cursorPosition = landedPos;
           inputState.selectionStart = landedPos;
@@ -381,7 +385,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
       if (isFocused && uiState->pointerDown) {
         float totalTextWidth =
-            font ? font->measureText(displayString, fontSize).x : 0.0f;
+            font ? font->measureText(displayString, physicalFontSize).x : 0.0f;
         float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
 
         if (inputState.isPotentialTextDrag) {
@@ -395,7 +399,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
         if (inputState.isDraggingText) {
           uint32_t currentLandedPos = findWhereCursorLanded(
-              displayString, font, clampedMouseX, fontSize);
+              displayString, font, clampedMouseX, physicalFontSize);
           inputState.cursorPosition = currentLandedPos;
           inputState.selectionStart =
               std::min(inputState.selectionAnchor, currentLandedPos);
@@ -409,11 +413,10 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       if (inputState.isPotentialTextDrag) {
         inputState.isPotentialTextDrag = false;
 
-        // Released inside selection without dragging: collapse to caret
         float relativeMouseX =
             bounds.found ? (uiState->pointerPos.x - (bounds.x() + padL)) : 0.0f;
-        uint32_t landedPos = findWhereCursorLanded(displayString, font,
-                                                   relativeMouseX, fontSize);
+        uint32_t landedPos = findWhereCursorLanded(
+            displayString, font, relativeMouseX, physicalFontSize);
 
         uiState->focusedElementId = elementId;
         isFocused = true;
@@ -428,10 +431,10 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
         inputState.isDraggingSelectedText = false;
         float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
         float totalTextWidth =
-            font ? font->measureText(displayString, fontSize).x : 0.0f;
+            font ? font->measureText(displayString, physicalFontSize).x : 0.0f;
         float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
-        uint32_t dropPos =
-            findWhereCursorLanded(displayString, font, clampedMouseX, fontSize);
+        uint32_t dropPos = findWhereCursorLanded(
+            displayString, font, clampedMouseX, physicalFontSize);
 
         if (dropPos < inputState.selectionStart ||
             dropPos > inputState.selectionEnd) {
@@ -454,6 +457,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       }
       inputState.isDraggingText = false;
     }
+
     if (isFocused) {
       auto *app = getVeraApp();
 
@@ -471,15 +475,10 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
           std::string selectedText = textBuffer.substr(
               inputState.selectionStart,
               inputState.selectionEnd - inputState.selectionStart);
-          if (uiState->copyTriggered) {
-            std::cout << "copy triggered" << std::endl;
-          }
-
           app->setClipboardText(selectedText);
           deleteSelection();
         }
 
-        // Ctrl+V (Paste)
         bool pasteTriggered = false;
         for (auto it = uiState->capturedChars.begin();
              it != uiState->capturedChars.end();) {
@@ -598,21 +597,25 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
         displayString += "•";
       }
     }
+
+    float measuredLineH =
+        font ? font->getLineHeight(physicalFontSize) : physicalFontSize;
+
     // Render Selection Box
     if (isFocused && (inputState.selectionStart != inputState.selectionEnd) &&
         font) {
       float startX =
           font->measureText(displayString.substr(0, inputState.selectionStart),
-                            fontSize)
+                            physicalFontSize)
               .x +
           padL;
       float endX =
           font->measureText(displayString.substr(0, inputState.selectionEnd),
-                            fontSize)
+                            physicalFontSize)
               .x +
           padL;
       float selectW = endX - startX;
-      float selectH = font->getLineHeight() / 1.5;
+      float selectH = measuredLineH / 1.5f;
       float selectY = (textboxHeight - selectH) * 0.5f;
 
       Div(DefaultModifier()
@@ -627,13 +630,11 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     // Presentation & Custom Render Hook Override
     if (config.customRenderer && font) {
       float startX = bounds.found ? (bounds.x() + padL) : padL;
-      float startY =
-          bounds.found
-              ? (bounds.y() +
-                 (textboxHeight - font->getLineHeight(fontSize)) * 0.5f)
-              : 0.0f;
-      config.customRenderer(displayString, startX, startY, fontSize, font,
-                            textColor);
+      float startY = bounds.found
+                         ? (bounds.y() + (textboxHeight - measuredLineH) * 0.5f)
+                         : 0.0f;
+      config.customRenderer(displayString, startX, startY, logicalFontSize,
+                            font, textColor);
     } else {
       std::string textToRender =
           textBuffer.empty() ? placeholder : displayString;
@@ -642,9 +643,10 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       Text(textToRender, fontId,
            DefaultModifier()
                .color(finalTextColor)
-               .fontSize(fontSize)
+               .fontSize(logicalFontSize)
                .fontWeight(fontWeight));
     }
+
     // Render Drop Target Caret when dragging selected text
     if (inputState.isDraggingSelectedText && bounds.found && font) {
       bool isOverThisInput =
@@ -655,15 +657,16 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       if (isOverThisInput) {
         float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
         float totalTextWidth =
-            font ? font->measureText(displayString, fontSize).x : 0.0f;
+            font ? font->measureText(displayString, physicalFontSize).x : 0.0f;
         float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
-        uint32_t dropPos =
-            findWhereCursorLanded(displayString, font, clampedMouseX, fontSize);
+        uint32_t dropPos = findWhereCursorLanded(
+            displayString, font, clampedMouseX, physicalFontSize);
 
-        float dropOffset =
-            font->measureText(displayString.substr(0, dropPos), fontSize).x +
-            padL;
-        float dropCaretH = font->getLineHeight() / 1.5;
+        float dropOffset = font->measureText(displayString.substr(0, dropPos),
+                                             physicalFontSize)
+                               .x +
+                           padL;
+        float dropCaretH = measuredLineH / 1.5f;
         float dropCaretY = (textboxHeight - dropCaretH) * 0.5f;
 
         Div(DefaultModifier()
@@ -680,22 +683,20 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     if (isFocused && font) {
       float cursorOffset = padL;
       if (config.isPassword) {
-        // Count how many actual characters exist before the cursor
         size_t numCodepoints =
             getCodepointCount(textBuffer.substr(0, inputState.cursorPosition));
         std::string maskedSub;
         for (size_t i = 0; i < numCodepoints; ++i) {
           maskedSub += "•";
         }
-        cursorOffset += font->measureText(maskedSub, fontSize).x;
+        cursorOffset += font->measureText(maskedSub, physicalFontSize).x;
       } else {
-        // Safe to slice directly
         cursorOffset += font->measureText(displayString.substr(
                                               0, inputState.cursorPosition),
-                                          fontSize)
+                                          physicalFontSize)
                             .x;
       }
-      float caretH = font->getLineHeight() / 1.5;
+      float caretH = measuredLineH / 1.5f;
       float caretY = (textboxHeight - caretH) * 0.5f;
 
       Div(DefaultModifier()
@@ -720,7 +721,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
         [&]() {
           Text(draggedSlice, fontId,
                DefaultModifier().color(textColor).opacity(0.5).fontSize(
-                   fontSize));
+                   logicalFontSize));
         });
   }
 

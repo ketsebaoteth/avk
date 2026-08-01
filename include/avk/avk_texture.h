@@ -51,6 +51,7 @@ public:
   uint32_t loadRawPixels(const uint8_t *pixels, uint32_t width,
                          uint32_t height);
 
+  uint32_t loadFontTexture(const std::string &path);
   // loads it from memory instead
   uint32_t loadTextureFromMemory(std::span<const uint8_t> bytes);
 
@@ -74,7 +75,8 @@ public:
   VkDescriptorSet getDescriptorSet() const { return m_descriptorSet; }
   VkSampler getSharedSampler() const { return m_sharedSampler; }
   VkSampler getFontSampler() const { return m_fontSampler; }
-
+  bool registerTextureAtSlot(uint32_t slot, VkImageView view,
+                             VkSampler sampler = VK_NULL_HANDLE);
   // returns the extent of a texture
   VkExtent2D getTextureExtent(uint32_t index) const {
     if (index < m_textures.size() && m_textures[index]) {

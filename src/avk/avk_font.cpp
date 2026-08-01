@@ -1,575 +1,705 @@
 #include "avk/avk_font.h"
-#include "avk/avk_core.h"
-#include "avk/avk_texture.h"
-#include "freetype/freetype.h"
-#include "hb-blob.hh"
+#include "avk/avk_textLayout.h"
 
+#include "avk/avk_core.h"
+#include "glm/ext/vector_float2.hpp"
+#include "ui/core/resources.h"
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <print>
 #include <sstream>
-#include <utility>
+
+namespace {
+
+uint32_t getUtf8CodepointAtCluster(std::string_view text,
+                                   uint32_t clusterIndex) {
+  if (clusterIndex >= text.size())
+    return 0;
+
+  unsigned char c = static_cast<unsigned char>(text[clusterIndex]);
+  if (c < 0x80)
+    return c;
+  if ((c & 0xE0) == 0xC0 && clusterIndex + 1 < text.size()) {
+    return ((c & 0x1F) << 6) |
+           (static_cast<unsigned char>(text[clusterIndex + 1]) & 0x3F);
+  }
+  if ((c & 0xF0) == 0xE0 && clusterIndex + 2 < text.size()) {
+    return ((c & 0x0F) << 12) |
+           ((static_cast<unsigned char>(text[clusterIndex + 1]) & 0x3F) << 6) |
+           (static_cast<unsigned char>(text[clusterIndex + 2]) & 0x3F);
+  }
+  if ((c & 0xF8) == 0xF0 && clusterIndex + 3 < text.size()) {
+    return ((c & 0x07) << 18) |
+           ((static_cast<unsigned char>(text[clusterIndex + 1]) & 0x3F) << 12) |
+           ((static_cast<unsigned char>(text[clusterIndex + 2]) & 0x3F) << 6) |
+           (static_cast<unsigned char>(text[clusterIndex + 3]) & 0x3F);
+  }
+  return 0;
+}
+
+} // namespace
 
 namespace avk {
 
-Font::Font(VulkanContext *context, const std::string &atlasImagePath,
-           const std::string &metricsCsvPath)
-    : m_context(context) {
-  if (!m_context || !m_context->isValid()) {
-    std::cerr << "avk: Cannot load Font with an invalid VulkanContext."
-              << std::endl;
-    return;
+Font::~Font() {
+  if (m_hbFont) {
+    hb_font_destroy(m_hbFont);
+    m_hbFont = nullptr;
+  }
+  if (m_ftFace) {
+    FT_Done_Face(m_ftFace);
+    m_ftFace = nullptr;
+  }
+  if (m_ftEmojiFace) {
+    FT_Done_Face(m_ftEmojiFace);
+    m_ftEmojiFace = nullptr;
   }
 
-  // 1. Load MSDF Atlas Texture
-  m_textureIndex = m_context->getTextureManager()->loadTexture(atlasImagePath);
-
-  VkExtent2D texExtent =
-      m_context->getTextureManager()->getTextureExtent(m_textureIndex);
-
-  if (texExtent.width == 0 || texExtent.height == 0) {
-    std::cerr
-        << "avk: Failed to resolve valid texture dimensions for MSDF Font."
-        << std::endl;
-    return;
+  if (m_allocator && m_allocator->getContext() &&
+      m_emojiImageView != VK_NULL_HANDLE) {
+    VkDevice device = m_allocator->getContext()->getDevice();
+    if (device != VK_NULL_HANDLE) {
+      vkDestroyImageView(device, m_emojiImageView, nullptr);
+    }
+    m_emojiImageView = VK_NULL_HANDLE;
   }
 
-  // 2. Load and Parse MSDF CSV Metrics File
-  std::ifstream csvFile(metricsCsvPath);
-  if (!csvFile.is_open()) {
-    std::cerr << "avk: Failed to open MSDF font metrics CSV: " << metricsCsvPath
-              << std::endl;
-    return;
-  }
-
-  std::stringstream ss;
-  ss << csvFile.rdbuf();
-  csvFile.close();
-
-  // 3. Parse metrics using EXACT physical texture dimensions!
-  parseMetricsCsv(ss.str(), texExtent.width, texExtent.height);
-
-  // 4. Initialize HarfBuzz Shaper
-  hb_blob_t *blob = hb_blob_create_from_file(atlasImagePath.c_str());
-  hb_face_t *face = hb_face_create(blob, 0);
-  m_hbFont = hb_font_create(face);
-  hb_face_destroy(face);
-  hb_blob_destroy(blob);
-}
-
-Font::Font(VulkanContext *context, std::span<const uint8_t> atlasPngBytes,
-           const std::string &metricsCsvContent)
-    : m_context(context) {
-  if (!m_context || !m_context->isValid()) {
-    std::cerr << "avk: Cannot load Font with an invalid VulkanContext."
-              << std::endl;
-    return;
-  }
-
-  m_textureIndex =
-      m_context->getTextureManager()->loadTextureFromMemory(atlasPngBytes);
-  parseMetricsCsv(metricsCsvContent, 512, 512);
-}
-
-Font::Font(VulkanContext *context, const std::string &filePath,
-           uint32_t fontSize, const std::vector<uint32_t> &codepoints)
-    : m_context(context) {
-  if (!m_context || !m_context->isValid()) {
-    std::cerr << "avk: Cannot load Font with an invalid VulkanContext."
-              << std::endl;
-    return;
-  }
-
-  std::ifstream file(filePath, std::ios::binary | std::ios::ate);
-  if (!file.is_open()) {
-    std::cerr << "avk: Failed to open font file: " << filePath << std::endl;
-    return;
-  }
-
-  size_t fileSize = static_cast<size_t>(file.tellg());
-  m_retainedFontBuffer.resize(fileSize);
-  file.seekg(0, std::ios::beg);
-  file.read(reinterpret_cast<char *>(m_retainedFontBuffer.data()), fileSize);
-  file.close();
-
-  if (!buildAtlasFromMemory(m_retainedFontBuffer, fontSize, codepoints)) {
-    std::cerr << "avk: Failed to construct Font Atlas for file: " << filePath
-              << std::endl;
+  if (m_emojiAtlasImage.getImage() != VK_NULL_HANDLE) {
+    m_emojiAtlasImage.destroy();
   }
 }
 
-Font::~Font() { release(); }
+bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
+                        float pixelSize, GpuAllocator *allocator,
+                        uint32_t fontTextureSlot, uint32_t emojiTextureSlot,
+                        uint32_t fontAtlasWidth, uint32_t fontAtlasHeight) {
+  m_pixelSize = pixelSize;
+  m_allocator = allocator;
+  m_fontTextureSlot = fontTextureSlot;
+  m_emojiTextureSlot = emojiTextureSlot;
 
-Font::Font(Font &&other) noexcept { *this = std::move(other); }
+  m_fontAtlasWidth = fontAtlasWidth;
+  m_fontAtlasHeight = fontAtlasHeight;
 
-Font &Font::operator=(Font &&other) noexcept {
-  if (this != &other) {
-    release();
-
-    m_context = other.m_context;
-    m_atlasImage = std::move(other.m_atlasImage);
-    m_atlasView = other.m_atlasView;
-    m_textureIndex = other.m_textureIndex;
-    m_lineHeight = other.m_lineHeight;
-    m_ascent = other.m_ascent;
-    m_fontSize = other.m_fontSize;
-    m_glyphs = std::move(other.m_glyphs);
-    m_fallbackGlyph = other.m_fallbackGlyph;
-    m_hbFont = other.m_hbFont;
-    m_retainedFontBuffer = std::move(other.m_retainedFontBuffer);
-
-    other.m_context = nullptr;
-    other.m_atlasView = VK_NULL_HANDLE;
-    other.m_textureIndex = 0;
-    other.m_hbFont = nullptr;
+  if (m_allocator && m_allocator->getContext() &&
+      m_allocator->getContext()->getTextureManager()) {
+    VkExtent2D ext =
+        m_allocator->getContext()->getTextureManager()->getTextureExtent(
+            fontTextureSlot);
+    if (ext.width > 0 && ext.height > 0) {
+      m_fontAtlasWidth = ext.width;
+      m_fontAtlasHeight = ext.height;
+    }
   }
-  return *this;
-}
 
-void Font::release() {
-  if (m_context == nullptr)
-    return;
+  static FT_Library ftLibrary = []() {
+    FT_Library lib;
+    FT_Init_FreeType(&lib);
+    return lib;
+  }();
 
-  if (m_textureIndex != 0) {
-    m_context->getTextureManager()->unloadTexture(m_textureIndex);
-    m_textureIndex = 0;
-  }
-  m_retainedFontBuffer.clear();
-}
-
-std::string Font::resolveSystemFontPath(const std::string &fontName) {
-  namespace fs = std::filesystem;
-
-  std::vector<std::string> searchDirs;
-#if defined(_WIN32)
-  searchDirs.push_back("C:\\Windows\\Fonts");
-#elif defined(__APPLE__)
-  searchDirs.push_back("/System/Library/Fonts");
-  searchDirs.push_back("/Library/Fonts");
-#else
-  searchDirs.push_back("/usr/share/fonts");
-  searchDirs.push_back("/usr/local/share/fonts");
-  searchDirs.push_back("~/.fonts");
-#endif
-
-  std::string lowerTarget = fontName;
-  std::transform(lowerTarget.begin(), lowerTarget.end(), lowerTarget.begin(),
-                 ::tolower);
-
-  for (const auto &dirPath : searchDirs) {
-    if (!fs::exists(dirPath))
-      continue;
-
-    for (const auto &entry : fs::recursive_directory_iterator(dirPath)) {
-      if (entry.is_regular_file()) {
-        std::string filename = entry.path().filename().string();
-        std::string lowerFilename = filename;
-        std::transform(lowerFilename.begin(), lowerFilename.end(),
-                       lowerFilename.begin(), ::tolower);
-
-        if (lowerFilename.find(lowerTarget) != std::string::npos &&
-            (entry.path().extension() == ".ttf" ||
-             entry.path().extension() == ".otf")) {
-          return entry.path().string();
+  if (FT_New_Face(ftLibrary, ttfPath, 0, &m_ftFace) != 0) {
+    std::string path1 = "assets/fonts/" + std::string(ttfPath);
+    if (FT_New_Face(ftLibrary, path1.c_str(), 0, &m_ftFace) != 0) {
+      std::string path2 = "../assets/fonts/" + std::string(ttfPath);
+      if (FT_New_Face(ftLibrary, path2.c_str(), 0, &m_ftFace) != 0) {
+        std::string path3 = "assets/" + std::string(ttfPath);
+        if (FT_New_Face(ftLibrary, path3.c_str(), 0, &m_ftFace) != 0) {
+          std::println(
+              "[atomicUI]: ERROR! FT_New_Face failed to locate TTF font: {}",
+              ttfPath);
+          return false;
         }
       }
     }
   }
-  return "";
-}
 
-static uint32_t decodeNextUtf8(const std::string &str, uint32_t &index) {
-  if (index >= str.size())
-    return 0;
-  unsigned char c = str[index++];
-  if (c < 0x80)
-    return c;
-  if ((c & 0xE0) == 0xC0) {
-    if (index >= str.size())
-      return c;
-    uint32_t res = (c & 0x1F) << 6;
-    res |= (static_cast<unsigned char>(str[index++]) & 0x3F);
-    return res;
-  }
-  if ((c & 0xF0) == 0xE0) {
-    if (index + 1 >= str.size())
-      return c;
-    uint32_t res = (c & 0x0F) << 12;
-    res |= (static_cast<unsigned char>(str[index++]) & 0x3F) << 6;
-    res |= (static_cast<unsigned char>(str[index++]) & 0x3F);
-    return res;
-  }
-  if ((c & 0xF8) == 0xF0) {
-    if (index + 2 >= str.size())
-      return c;
-    uint32_t res = (c & 0x07) << 18;
-    res |= (static_cast<unsigned char>(str[index++]) & 0x3F) << 12;
-    res |= (static_cast<unsigned char>(str[index++]) & 0x3F) << 6;
-    res |= (static_cast<unsigned char>(str[index++]) & 0x3F);
-    return res;
-  }
-  return c;
-}
-
-glm::vec2 Font::measureText(const std::string &text, float fontSize) const {
-  float baseSize = (m_fontSize > 0) ? static_cast<float>(m_fontSize) : 32.0f;
-  float scale = (fontSize > 0.0f) ? (fontSize / baseSize) : 1.0f;
-
-  float width = 0.0f;
-  float lineHeight = m_lineHeight * scale;
-
-  uint32_t index = 0;
-  while (index < text.size()) {
-    uint32_t codepoint = decodeNextUtf8(text, index);
-    const Glyph &glyph = getGlyph(codepoint);
-    width += glyph.advance * scale;
-  }
-
-  return glm::vec2(width, lineHeight);
-}
-
-bool Font::parseMetricsCsv(const std::string &csvContent, uint32_t atlasWidth,
-                           uint32_t atlasHeight) {
-  std::stringstream ss(csvContent);
-  std::string line;
-
-  float invW = 1.0f / static_cast<float>(atlasWidth);
-  float invH = 1.0f / static_cast<float>(atlasHeight);
-
-  float maxAscent = 0.0f;
-  float maxDescent = 0.0f;
-
-  while (std::getline(ss, line)) {
-    if (line.empty() || line[0] == '#')
-      continue;
-
-    std::stringstream lineStream(line);
-    std::string cell;
-    std::vector<float> values;
-
-    while (std::getline(lineStream, cell, ',')) {
-      try {
-        values.push_back(std::stof(cell));
-      } catch (...) {
-        break;
-      }
-    }
-
-    if (values.size() >= 10) {
-      uint32_t codepoint = static_cast<uint32_t>(values[0]);
-      float advance = values[1] * 32.0f;
-
-      float pLeft = values[2] * 32.0f;
-      float pBottom = values[3] * 32.0f;
-      float pRight = values[4] * 32.0f;
-      float pTop = values[5] * 32.0f;
-
-      // Track maximum ascent and descent dynamically from CSV!
-      maxAscent = std::max(maxAscent, pTop);
-      maxDescent = std::max(maxDescent, std::abs(pBottom));
-
-      float aLeft = values[6];
-      float aBottom = values[7];
-      float aRight = values[8];
-      float aTop = values[9];
-
-      float uMin = std::min(aLeft, aRight) * invW;
-      float uMax = std::max(aLeft, aRight) * invW;
-      float vMin = 1.0f - (std::max(aTop, aBottom) * invH);
-      float vMax = 1.0f - (std::min(aTop, aBottom) * invH);
-
-      Glyph glyph{};
-      glyph.size = glm::vec2(pRight - pLeft, pTop - pBottom);
-      glyph.bearing = glm::vec2(pLeft, pTop);
-      glyph.advance = advance;
-
-      glyph.uvBounds = glm::vec4(uMin, vMin, uMax, vMax);
-
-      m_glyphs[codepoint] = glyph;
-    }
-  }
-
-  // If 'H' or 'A' exist (standard text font), use them. Otherwise, compute max
-  // top bearing across all glyphs.
-  if (m_glyphs.find('H') != m_glyphs.end()) {
-    m_ascent = m_glyphs['H'].bearing.y;
-  } else if (m_glyphs.find('A') != m_glyphs.end()) {
-    m_ascent = m_glyphs['A'].bearing.y;
-  } else if (!m_glyphs.empty()) {
-    // Fallback for Icon Fonts (like Lucide): find max top bearing
-    float maxTop = 0.0f;
-    for (const auto &[cp, g] : m_glyphs) {
-      maxTop = std::max(maxTop, g.bearing.y);
-    }
-    m_ascent = (maxTop > 0.0f) ? maxTop : 22.0f;
-  } else {
-    m_ascent = 22.0f;
-  }
-
-  // Same for descent/line height
-  float maxStandardDescent = 0.0f;
-  const char descenderChars[] = {'g', 'j', 'p', 'q', 'y', 'Q',
-                                 '|', '(', ')', '[', ']'};
-  for (char c : descenderChars) {
-    if (m_glyphs.find(c) != m_glyphs.end()) {
-      float d = std::abs(m_glyphs[c].size.y - m_glyphs[c].bearing.y);
-      maxStandardDescent = std::max(maxStandardDescent, d);
-    }
-  }
-
-  if (maxStandardDescent == 0.0f) {
-    maxStandardDescent = maxDescent > 0.0f ? maxDescent : (m_ascent * 0.3f);
-  }
-
-  m_lineHeight = m_ascent + maxStandardDescent;
-  return !m_glyphs.empty();
-}
-
-bool Font::buildAtlasFromMemory(std::span<const uint8_t> fontBytes,
-                                uint32_t fontSize,
-                                const std::vector<uint32_t> &codepoints) {
-  if (fontBytes.empty())
-    return false;
-
-  FT_Library ft = nullptr;
-  if (FT_Init_FreeType(&ft)) {
+  if (FT_Set_Pixel_Sizes(m_ftFace, 0, static_cast<FT_UInt>(pixelSize)) != 0) {
+    FT_Done_Face(m_ftFace);
+    m_ftFace = nullptr;
     return false;
   }
 
-  FT_Face face = nullptr;
-  if (FT_New_Memory_Face(ft, fontBytes.data(),
-                         static_cast<FT_Long>(fontBytes.size()), 0, &face)) {
-    FT_Done_FreeType(ft);
+  m_hbFont = hb_ft_font_create_referenced(m_ftFace);
+  if (!m_hbFont) {
+    FT_Done_Face(m_ftFace);
+    m_ftFace = nullptr;
     return false;
   }
 
-  FT_Set_Pixel_Sizes(face, 0, fontSize);
+  hb_ft_font_set_funcs(m_hbFont);
 
-  m_lineHeight = static_cast<float>(face->size->metrics.height >> 6);
-  m_ascent = static_cast<float>(face->size->metrics.ascender >> 6);
-  m_fontSize = fontSize;
-
-  std::vector<uint32_t> targets = codepoints;
-  if (targets.empty()) {
-    targets.reserve(95);
-    for (uint32_t i = 32; i < 127; ++i) {
-      targets.push_back(i);
-    }
+  if (!loadMetricsCsv(csvPath)) {
+    return false;
   }
 
-  uint32_t glyphPadding = 2;
-  uint32_t atlasWidth = 512;
-  uint32_t currentX = 0;
-  uint32_t currentY = 0;
-  uint32_t rowHeight = 0;
-
-  for (uint32_t cp : targets) {
-    if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) {
-      continue;
-    }
-
-    uint32_t w = face->glyph->bitmap.width;
-    uint32_t h = face->glyph->bitmap.rows;
-
-    if (currentX + w + glyphPadding >= atlasWidth) {
-      currentX = 0;
-      currentY += rowHeight + glyphPadding;
-      rowHeight = 0;
-    }
-
-    rowHeight = std::max(rowHeight, h);
-    currentX += w + glyphPadding;
-  }
-
-  uint32_t atlasHeight = currentY + rowHeight + glyphPadding;
-  atlasHeight = (atlasHeight + 3) & ~3;
-
-  std::vector<uint8_t> atlasBuffer(atlasWidth * atlasHeight, 0);
-
-  currentX = 0;
-  currentY = 0;
-  rowHeight = 0;
-
-  for (uint32_t cp : targets) {
-    if (FT_Load_Char(face, cp, FT_LOAD_RENDER)) {
-      continue;
-    }
-
-    FT_Bitmap &bitmap = face->glyph->bitmap;
-    uint32_t w = bitmap.width;
-    uint32_t h = bitmap.rows;
-
-    if (currentX + w + glyphPadding >= atlasWidth) {
-      currentX = 0;
-      currentY += rowHeight + glyphPadding;
-      rowHeight = 0;
-    }
-
-    for (uint32_t r = 0; r < h; ++r) {
-      for (uint32_t c = 0; c < w; ++c) {
-        atlasBuffer[(currentY + r) * atlasWidth + (currentX + c)] =
-            bitmap.buffer[r * bitmap.pitch + c];
-      }
-    }
-
-    Glyph glyph{};
-    glyph.size = glm::vec2(static_cast<float>(w), static_cast<float>(h));
-    glyph.bearing = glm::vec2(static_cast<float>(face->glyph->bitmap_left),
-                              static_cast<float>(face->glyph->bitmap_top));
-    glyph.advance = static_cast<float>(face->glyph->advance.x >> 6);
-
-    glyph.uvBounds = glm::vec4(
-        static_cast<float>(currentX) / static_cast<float>(atlasWidth),
-        static_cast<float>(currentY) / static_cast<float>(atlasHeight),
-        static_cast<float>(currentX + w) / static_cast<float>(atlasWidth),
-        static_cast<float>(currentY + h) / static_cast<float>(atlasHeight));
-
-    m_glyphs[cp] = glyph;
-
-    rowHeight = std::max(rowHeight, h);
-    currentX += w + glyphPadding;
-  }
-
-  FT_Done_Face(face);
-  FT_Done_FreeType(ft);
-
-  m_fallbackGlyph = m_glyphs[63];
-
-  VkDeviceSize bufferSize = atlasWidth * atlasHeight;
-
-  AllocatedBuffer stagingBuffer = m_context->getAllocator()->createBuffer(
-      bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-      VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-      VMA_ALLOCATION_CREATE_MAPPED_BIT |
-          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-  std::memcpy(stagingBuffer.getMappedData(), atlasBuffer.data(), bufferSize);
-
+  // 1. Allocate GPU Image for dynamic Emoji shelf atlas
   VkImageCreateInfo imageInfo{};
   imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   imageInfo.imageType = VK_IMAGE_TYPE_2D;
-  imageInfo.extent.width = atlasWidth;
-  imageInfo.extent.height = atlasHeight;
+  imageInfo.extent.width = m_emojiAtlasWidth;
+  imageInfo.extent.height = m_emojiAtlasHeight;
   imageInfo.extent.depth = 1;
   imageInfo.mipLevels = 1;
   imageInfo.arrayLayers = 1;
-  imageInfo.format = VK_FORMAT_R8_UNORM;
+  imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
   imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
   imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   imageInfo.usage =
       VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+  imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-  m_atlasImage = m_context->getAllocator()->createImage(
-      imageInfo, VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE);
+  m_emojiAtlasImage =
+      m_allocator->createImage(imageInfo, VMA_MEMORY_USAGE_GPU_ONLY);
+  m_emojiAtlasLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  VkDevice device = m_context->getDevice();
-  VkQueue graphicsQueue = m_context->getGraphicsQueue();
+  // 2. Transition m_emojiAtlasImage layout to SHADER_READ_ONLY_OPTIMAL
+  m_allocator->immediateSubmit([&](VkCommandBuffer cmd) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = m_emojiAtlasImage.getImage();
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
-  VkCommandPool tempPool = VK_NULL_HANDLE;
-  VkCommandPoolCreateInfo poolInfo{};
-  poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-  poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-  poolInfo.queueFamilyIndex = m_context->getQueueFamilies().graphicsFamily;
-  vkCreateCommandPool(device, &poolInfo, nullptr, &tempPool);
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+  });
+  m_emojiAtlasLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-  VkCommandBufferAllocateInfo allocInfo{};
-  allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-  allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  allocInfo.commandPool = tempPool;
-  allocInfo.commandBufferCount = 1;
+  // 3. Register m_emojiAtlasImage view in Vulkan Texture Manager at
+  // m_emojiTextureSlot
+  if (m_allocator && m_allocator->getContext() &&
+      m_allocator->getContext()->getTextureManager()) {
+    VkImageViewCreateInfo viewInfo{};
+    viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    viewInfo.image = m_emojiAtlasImage.getImage();
+    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+    viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    viewInfo.subresourceRange.baseMipLevel = 0;
+    viewInfo.subresourceRange.levelCount = 1;
+    viewInfo.subresourceRange.baseArrayLayer = 0;
+    viewInfo.subresourceRange.layerCount = 1;
 
-  VkCommandBuffer cmd = VK_NULL_HANDLE;
-  vkAllocateCommandBuffers(device, &allocInfo, &cmd);
+    VkDevice device = m_allocator->getContext()->getDevice();
+    if (vkCreateImageView(device, &viewInfo, nullptr, &m_emojiImageView) ==
+        VK_SUCCESS) {
+      m_allocator->getContext()->getTextureManager()->registerTextureAtSlot(
+          m_emojiTextureSlot, m_emojiImageView);
+    }
+  }
 
-  VkCommandBufferBeginInfo beginInfo{};
-  beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-  beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-  vkBeginCommandBuffer(cmd, &beginInfo);
+  // 4. Load OS System Color Emoji Fallback Font with FT_Select_Size
+  std::string emojiFontPath = atomic::getPath("fonts/NotoColorEmoji.ttf");
+  if (!std::filesystem::exists(emojiFontPath)) {
+    emojiFontPath = resolveSystemFontPath("NotoColorEmoji");
+  }
 
-  VkImageMemoryBarrier barrier{};
-  barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-  barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-  barrier.image = m_atlasImage.getImage();
-  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  barrier.subresourceRange.baseMipLevel = 0;
-  barrier.subresourceRange.levelCount = 1;
-  barrier.subresourceRange.baseArrayLayer = 0;
-  barrier.subresourceRange.layerCount = 1;
-  barrier.srcAccessMask = 0;
-  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  if (std::filesystem::exists(emojiFontPath)) {
+    if (FT_New_Face(ftLibrary, emojiFontPath.c_str(), 0, &m_ftEmojiFace) == 0) {
+      if (m_ftEmojiFace) {
+        if (m_ftEmojiFace->num_fixed_sizes > 0) {
+          FT_Select_Size(m_ftEmojiFace, 0);
+        } else {
+          FT_Set_Pixel_Sizes(m_ftEmojiFace, 0, static_cast<FT_UInt>(pixelSize));
+        }
+      }
+    }
+  }
 
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
-                       nullptr, 1, &barrier);
+  if (m_ftFace) {
+    std::string pathStr(ttfPath);
+    std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), ::tolower);
+    if (m_ftFace->descender == 0 ||
+        pathStr.find("lucide") != std::string::npos ||
+        pathStr.find("icon") != std::string::npos ||
+        pathStr.find("awesome") != std::string::npos) {
+      m_isIconFont = true;
+    }
+  }
 
-  VkBufferImageCopy region{};
-  region.bufferOffset = 0;
-  region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  region.imageSubresource.mipLevel = 0;
-  region.imageSubresource.baseArrayLayer = 0;
-  region.imageSubresource.layerCount = 1;
-  region.imageExtent = {atlasWidth, atlasHeight, 1};
+  return m_emojiAtlasImage.getImage() != VK_NULL_HANDLE;
+}
 
-  vkCmdCopyBufferToImage(cmd, stagingBuffer.getBuffer(),
-                         m_atlasImage.getImage(),
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-
-  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-  vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr, 0,
-                       nullptr, 1, &barrier);
-
-  vkEndCommandBuffer(cmd);
-
-  VkSubmitInfo submitInfo{};
-  submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-  submitInfo.commandBufferCount = 1;
-  submitInfo.pCommandBuffers = &cmd;
-
-  VkFenceCreateInfo fenceInfo{};
-  fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-  VkFence fence = VK_NULL_HANDLE;
-  vkCreateFence(device, &fenceInfo, nullptr, &fence);
-
-  vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence);
-  vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
-
-  vkDestroyFence(device, fence, nullptr);
-  vkDestroyCommandPool(device, tempPool, nullptr);
-  stagingBuffer.destroy();
-
-  VkImageViewCreateInfo viewInfo{};
-  viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-  viewInfo.image = m_atlasImage.getImage();
-  viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-  viewInfo.format = VK_FORMAT_R8_UNORM;
-  viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  viewInfo.subresourceRange.baseMipLevel = 0;
-  viewInfo.subresourceRange.levelCount = 1;
-  viewInfo.subresourceRange.baseArrayLayer = 0;
-  viewInfo.subresourceRange.layerCount = 1;
-
-  if (vkCreateImageView(device, &viewInfo, nullptr, &m_atlasView) !=
-      VK_SUCCESS) {
-    m_atlasImage.destroy();
+bool Font::loadMetricsCsv(const char *csvPath) {
+  std::ifstream file(csvPath);
+  if (!file.is_open()) {
     return false;
   }
 
-  m_textureIndex = m_context->getTextureManager()->registerTexture(
-      std::move(m_atlasImage), m_atlasView,
-      m_context->getTextureManager()->getFontSampler());
+  std::string line;
+  std::getline(file, line);
 
-  return true;
+  while (std::getline(file, line)) {
+    if (line.empty())
+      continue;
+
+    std::stringstream ss(line);
+    std::string val;
+    std::vector<std::string> tokens;
+
+    while (std::getline(ss, val, ',')) {
+      tokens.push_back(val);
+    }
+
+    if (tokens.size() >= 10) {
+      GlyphMetrics gm{};
+      gm.codepoint = static_cast<uint32_t>(std::stoul(tokens[0]));
+      gm.advance = std::stof(tokens[1]);
+      gm.planeLeft = std::stof(tokens[2]);
+      gm.planeBottom = std::stof(tokens[3]);
+      gm.planeRight = std::stof(tokens[4]);
+      gm.planeTop = std::stof(tokens[5]);
+      gm.atlasLeft = std::stof(tokens[6]);
+      gm.atlasBottom = std::stof(tokens[7]);
+      gm.atlasRight = std::stof(tokens[8]);
+      gm.atlasTop = std::stof(tokens[9]);
+
+      m_codepointMetricsMap[gm.codepoint] = gm;
+
+      if (m_ftFace) {
+        FT_UInt glyphIdx = FT_Get_Char_Index(m_ftFace, gm.codepoint);
+        if (glyphIdx != 0) {
+          m_glyphIndexMetricsMap[glyphIdx] = gm;
+        }
+      }
+    }
+  }
+  return !m_codepointMetricsMap.empty();
+}
+
+bool Font::loadEmojiGlyph(uint32_t glyphIndex, std::vector<uint8_t> &outPixels,
+                          uint32_t &outWidth, uint32_t &outHeight) {
+  FT_Face targetFace = m_ftFace;
+  FT_UInt targetGlyphIdx = glyphIndex;
+
+  if (m_ftEmojiFace && (glyphIndex >= 0x80000000)) {
+    targetFace = m_ftEmojiFace;
+    targetGlyphIdx = glyphIndex & 0x7FFFFFFF;
+  }
+
+  if (!targetFace) {
+    return false;
+  }
+
+  FT_Int32 loadFlags = FT_LOAD_COLOR | FT_LOAD_DEFAULT;
+  if (FT_Load_Glyph(targetFace, targetGlyphIdx, loadFlags) != 0) {
+    return false;
+  }
+
+  if (targetFace->glyph->format != FT_GLYPH_FORMAT_BITMAP) {
+    if (FT_Render_Glyph(targetFace->glyph, FT_RENDER_MODE_NORMAL) != 0) {
+      return false;
+    }
+  }
+
+  FT_Bitmap &bitmap = targetFace->glyph->bitmap;
+  outWidth = bitmap.width;
+  outHeight = bitmap.rows;
+
+  if (outWidth == 0 || outHeight == 0) {
+    return false;
+  }
+
+  outPixels.resize(outWidth * outHeight * 4);
+
+  if (bitmap.pixel_mode == FT_PIXEL_MODE_BGRA) {
+    for (uint32_t y = 0; y < outHeight; ++y) {
+      for (uint32_t x = 0; x < outWidth; ++x) {
+        uint32_t srcIdx = y * bitmap.pitch + x * 4;
+        uint32_t dstIdx = (y * outWidth + x) * 4;
+
+        outPixels[dstIdx + 0] = bitmap.buffer[srcIdx + 2];
+        outPixels[dstIdx + 1] = bitmap.buffer[srcIdx + 1];
+        outPixels[dstIdx + 2] = bitmap.buffer[srcIdx + 0];
+        outPixels[dstIdx + 3] = bitmap.buffer[srcIdx + 3];
+      }
+    }
+    return true;
+  } else if (bitmap.pixel_mode == FT_PIXEL_MODE_GRAY) {
+    for (uint32_t y = 0; y < outHeight; ++y) {
+      for (uint32_t x = 0; x < outWidth; ++x) {
+        uint32_t srcIdx = y * bitmap.pitch + x;
+        uint32_t dstIdx = (y * outWidth + x) * 4;
+        uint8_t alpha = bitmap.buffer[srcIdx];
+
+        outPixels[dstIdx + 0] = 255;
+        outPixels[dstIdx + 1] = 255;
+        outPixels[dstIdx + 2] = 255;
+        outPixels[dstIdx + 3] = alpha;
+      }
+    }
+    return true;
+  }
+
+  return false;
+}
+
+bool Font::isEmojiGlyph(uint32_t glyphIndex) {
+  if (FT_Load_Glyph(m_ftFace, glyphIndex, FT_LOAD_COLOR) == 0) {
+    return m_ftFace->glyph->format == FT_GLYPH_FORMAT_BITMAP;
+  }
+  return false;
+}
+
+glm::vec4 Font::allocateAndUploadEmoji(uint32_t glyphIndex,
+                                       const std::vector<uint8_t> &pixels,
+                                       uint32_t width, uint32_t height) {
+  if (m_shelfX + width + m_atlasPadding > m_emojiAtlasWidth) {
+    m_shelfX = 0;
+    m_shelfY += m_rowHeight + m_atlasPadding;
+    m_rowHeight = 0;
+  }
+
+  if (m_shelfY + height + m_atlasPadding > m_emojiAtlasHeight) {
+    return glm::vec4(0.0f);
+  }
+
+  uint32_t allocX = m_shelfX + m_atlasPadding;
+  uint32_t allocY = m_shelfY + m_atlasPadding;
+
+  m_shelfX += width + (m_atlasPadding * 2);
+  m_rowHeight = std::max(m_rowHeight, height + (m_atlasPadding * 2));
+
+  VkDeviceSize imageSize = width * height * 4;
+  AllocatedBuffer stagingBuffer = m_allocator->createBuffer(
+      imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU,
+      VMA_ALLOCATION_CREATE_MAPPED_BIT);
+
+  std::memcpy(stagingBuffer.getMappedData(), pixels.data(),
+              static_cast<size_t>(imageSize));
+
+  m_allocator->immediateSubmit([&](VkCommandBuffer cmd) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.oldLayout = m_emojiAtlasLayout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = m_emojiAtlasImage.getImage();
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = 1;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = 1;
+
+    // Match pipeline stage mask to access mask
+    VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    VkAccessFlags srcAccess = 0;
+
+    if (m_emojiAtlasLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+      srcStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      srcAccess = VK_ACCESS_SHADER_READ_BIT;
+    }
+
+    barrier.srcAccessMask = srcAccess;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+
+    vkCmdPipelineBarrier(cmd, srcStage, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                         nullptr, 0, nullptr, 1, &barrier);
+
+    VkBufferImageCopy region{};
+    region.bufferOffset = 0;
+    region.bufferRowLength = 0;
+    region.bufferImageHeight = 0;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    region.imageSubresource.mipLevel = 0;
+    region.imageSubresource.baseArrayLayer = 0;
+    region.imageSubresource.layerCount = 1;
+    region.imageOffset = {static_cast<int32_t>(allocX),
+                          static_cast<int32_t>(allocY), 0};
+    region.imageExtent = {width, height, 1};
+
+    vkCmdCopyBufferToImage(cmd, stagingBuffer.getBuffer(),
+                           m_emojiAtlasImage.getImage(),
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+  });
+
+  m_emojiAtlasLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  stagingBuffer.destroy();
+
+  glm::vec4 uvRect(
+      static_cast<float>(allocX) / static_cast<float>(m_emojiAtlasWidth),
+      static_cast<float>(allocY) / static_cast<float>(m_emojiAtlasHeight),
+      static_cast<float>(allocX + width) /
+          static_cast<float>(m_emojiAtlasWidth),
+      static_cast<float>(allocY + height) /
+          static_cast<float>(m_emojiAtlasHeight));
+
+  m_emojiUvMap[glyphIndex] = uvRect;
+  return uvRect;
+}
+
+glm::vec2 Font::measureText(std::string_view text, float fontSize,
+                            float maxWidth, avk::TextWrapMode wrapMode,
+                            float lineHeight,
+                            avk::TextAlignMode alignMode) const {
+  if (text.empty() || !m_hbFont) {
+    return glm::vec2(0.0f);
+  }
+
+  float size = (fontSize > 0.0f) ? fontSize : m_pixelSize;
+
+  TextLayoutOptions options{};
+  options.fontSize = size;
+  options.baseFontSize = m_pixelSize;
+  options.maxWidth = maxWidth;
+  options.wrapMode = wrapMode;
+  options.lineHeight = lineHeight;
+  options.alignMode = alignMode;
+
+  auto glyphs = TextLayout::ShapeString(m_hbFont, text, options, 0.0f, 0.0f);
+  if (glyphs.empty()) {
+    return glm::vec2(0.0f, size);
+  }
+
+  float effectiveLineH = (lineHeight > 0.0f) ? lineHeight : getLineHeight(size);
+
+  float maxLineWidth = 0.0f;
+  float maxY = 0.0f;
+
+  for (const auto &g : glyphs) {
+    maxLineWidth = std::max(maxLineWidth, g.rectXYWH.x + g.xAdvance);
+    // Accumulate height using the active line height for each line slot
+    maxY = std::max(maxY, g.rectXYWH.y + effectiveLineH);
+  }
+
+  return glm::vec2(maxLineWidth, maxY);
+}
+
+float Font::getLineHeight(float fontSize) const {
+  float size = (fontSize > 0.0f) ? fontSize : m_pixelSize;
+  if (m_isIconFont)
+    return size;
+  return size * 1.2f;
+}
+
+float Font::getAscent(float fontSize) const {
+  float size = (fontSize > 0.0f) ? fontSize : m_pixelSize;
+  if (m_isIconFont) {
+    return size;
+  }
+  return size * 0.86f;
+}
+
+std::string Font::resolveSystemFontPath(std::string_view fontName) {
+#if defined(__linux__)
+  std::vector<std::string> searchPaths = {
+      "/usr/share/fonts/noto/" + std::string(fontName) + ".ttf",
+      "/usr/share/fonts/noto-emoji/" + std::string(fontName) + ".ttf",
+      "/usr/share/fonts/TTF/" + std::string(fontName) + ".ttf",
+      "/usr/share/fonts/truetype/noto/" + std::string(fontName) + ".ttf",
+      "/usr/share/fonts/truetype/" + std::string(fontName) + ".ttf",
+      "/usr/share/fonts/TTF/NotoColorEmoji.ttf",
+      "/usr/share/fonts/noto/NotoColorEmoji.ttf"};
+
+  for (const auto &path : searchPaths) {
+    if (std::filesystem::exists(path)) {
+      return path;
+    }
+  }
+#elif defined(__APPLE__)
+  std::vector<std::string> searchPaths = {
+      "/System/Library/Fonts/Apple Color Emoji.ttc",
+      "/Library/Fonts/Apple Color Emoji.ttc",
+      "/Library/Fonts/" + std::string(fontName) + ".ttf"};
+  for (const auto &path : searchPaths) {
+    if (std::filesystem::exists(path))
+      return path;
+  }
+#elif defined(_WIN32)
+  std::string path = "C:\\Windows\\Fonts\\seguiemj.ttf";
+  if (std::filesystem::exists(path))
+    return path;
+  path = "C:\\Windows\\Fonts\\" + std::string(fontName) + ".ttf";
+  if (std::filesystem::exists(path))
+    return path;
+#endif
+  return std::string(fontName);
+}
+
+std::vector<avk::InstanceData>
+Font::layoutText(std::string_view text, glm::vec2 position,
+                 const Clay_BoundingBox &box, const glm::vec4 &color,
+                 float fontSize, float letterSpacing, float fontWeight,
+                 const glm::vec4 &clipRect, float scale, float rotation,
+                 const glm::vec2 &transformOrigin, const glm::vec2 &translate,
+                 float lineHeight, avk::TextWrapMode wrapMode,
+                 avk::TextAlignMode alignMode) {
+
+  std::vector<avk::InstanceData> instances;
+  if (text.empty() || !m_hbFont) {
+    return instances;
+  }
+
+  float targetSize = fontSize > 0.0f ? fontSize : m_pixelSize;
+
+  TextLayoutOptions options{};
+  options.fontSize = targetSize;
+  options.baseFontSize = m_pixelSize;
+  options.fontWeight = fontWeight;
+  options.letterSpacing = letterSpacing;
+  options.lineHeight = lineHeight;
+  options.wrapMode = wrapMode;
+  options.alignMode = alignMode;
+  options.maxWidth = box.width;
+  options.textureIndex = m_fontTextureSlot;
+  options.color = color;
+
+  std::vector<ShapedGlyph> shapedGlyphs =
+      TextLayout::ShapeString(m_hbFont, text, options, position.x, position.y);
+
+  instances.reserve(shapedGlyphs.size());
+
+  auto getPivotTransformedCoords =
+      [](const glm::vec4 &glyphRect,
+         [[maybe_unused]] const Clay_BoundingBox &containerBox,
+         [[maybe_unused]] float s, [[maybe_unused]] float r,
+         [[maybe_unused]] const glm::vec2 &origin,
+         const glm::vec2 &trans) -> glm::vec4 {
+    float rawPosX = glyphRect.x + trans.x;
+    float rawPosY = glyphRect.y + trans.y;
+    return glm::vec4(rawPosX, rawPosY, glyphRect.z, glyphRect.w);
+  };
+
+  for (const auto &glyph : shapedGlyphs) {
+    avk::InstanceData instance{};
+
+    bool isEmoji = isEmojiGlyph(glyph.glyphIndex);
+    uint32_t activeEmojiKey = glyph.glyphIndex;
+
+    // Fallback to Noto Color Emoji only for non-ASCII characters (codepoint >=
+    // 0x80)
+    if ((!isEmoji || glyph.glyphIndex == 0) && m_ftEmojiFace) {
+      uint32_t codepoint = getUtf8CodepointAtCluster(text, glyph.clusterIndex);
+      if (codepoint >= 0x80) {
+        FT_UInt fallbackIdx = FT_Get_Char_Index(m_ftEmojiFace, codepoint);
+        if (fallbackIdx != 0) {
+          isEmoji = true;
+          activeEmojiKey = 0x80000000 | fallbackIdx;
+        }
+      }
+    }
+
+    if (isEmoji) {
+      glm::vec4 uvRect(0.0f);
+      uint32_t eWidth = 0, eHeight = 0;
+
+      auto itUv = m_emojiUvMap.find(activeEmojiKey);
+      if (itUv != m_emojiUvMap.end()) {
+        uvRect = itUv->second;
+      } else {
+        std::vector<uint8_t> emojiPixels;
+        if (loadEmojiGlyph(activeEmojiKey, emojiPixels, eWidth, eHeight)) {
+          uvRect = allocateAndUploadEmoji(activeEmojiKey, emojiPixels, eWidth,
+                                          eHeight);
+        }
+      }
+
+      float eSize = targetSize;
+      glm::vec4 emojiRect(glyph.rectXYWH.x, glyph.rectXYWH.y, eSize, eSize);
+      glm::vec4 bounds = getPivotTransformedCoords(
+          emojiRect, box, scale, rotation, transformOrigin, translate);
+
+      instance.rectXYWH =
+          glm::vec4(std::floor(bounds.x + 0.5f), std::floor(bounds.y + 0.5f),
+                    std::floor(eSize + 0.5f), std::floor(eSize + 0.5f));
+
+      instance.borderRadius = glm::vec4(0.0f);
+      instance.fillColorA = glm::vec4(1.0f);
+      instance.uvBounds = uvRect;
+      instance.clipRect = clipRect;
+      instance.shapeType = 0;
+      instance.fillType = 7; // fillType = 7 for RGBA Color Emoji sampling
+      instance.textureIndex = m_emojiTextureSlot;
+      instance.strokeThickness = glm::vec4(0.0f);
+      instance.blur = 0.0f;
+      instance.scale = scale;
+      instance.rotation = rotation;
+      instance.fontWeight = fontWeight;
+      instances.push_back(instance);
+    } else {
+      auto it = m_glyphIndexMetricsMap.find(glyph.glyphIndex);
+      if (it == m_glyphIndexMetricsMap.end()) {
+        continue;
+      }
+
+      const auto &gm = it->second;
+
+      float inkWidth = (gm.planeRight - gm.planeLeft) * options.fontSize;
+      float inkHeight = (gm.planeTop - gm.planeBottom) * options.fontSize;
+
+      float lineBoxHeight =
+          (options.lineHeight > 0.0f) ? options.lineHeight : glyph.rectXYWH.w;
+      float verticalPadding = (lineBoxHeight > targetSize)
+                                  ? (lineBoxHeight - targetSize) * 0.5f
+                                  : 0.0f;
+
+      float fontAscent = getAscent(targetSize);
+      float rawBaselineY = glyph.rectXYWH.y + fontAscent + verticalPadding;
+      float baselineY = std::floor(rawBaselineY + 0.5f);
+
+      float posX = glyph.rectXYWH.x + (gm.planeLeft * options.fontSize);
+      float posY = baselineY - (gm.planeTop * options.fontSize);
+
+      glm::vec4 physicalGlyphRect(posX, posY, inkWidth, inkHeight);
+      glm::vec4 bounds = getPivotTransformedCoords(
+          physicalGlyphRect, box, scale, rotation, transformOrigin, translate);
+
+      instance.rectXYWH =
+          glm::vec4(std::floor(bounds.x + 0.5f), std::floor(bounds.y + 0.5f),
+                    std::floor(bounds.z + 0.5f), std::floor(bounds.w + 0.5f));
+
+      instance.borderRadius = glm::vec4(0.0f);
+      instance.fillColorA = color;
+
+      float texW = static_cast<float>(m_fontAtlasWidth);
+      float texH = static_cast<float>(m_fontAtlasHeight);
+
+      float uMin = gm.atlasLeft / texW;
+      float vMin = (texH - gm.atlasTop) / texH;
+      float uMax = gm.atlasRight / texW;
+      float vMax = (texH - gm.atlasBottom) / texH;
+
+      instance.uvBounds = glm::vec4(uMin, vMin, uMax, vMax);
+      instance.clipRect = clipRect;
+      instance.shapeType = 0;
+      instance.fillType = 3;
+      instance.textureIndex = m_fontTextureSlot;
+      instance.strokeThickness = glm::vec4(0.0f);
+      instance.blur = 0.0f;
+      instance.scale = scale;
+      instance.rotation = rotation;
+      instance.fontWeight = fontWeight;
+      instances.push_back(instance);
+    }
+  }
+
+  return instances;
 }
 
 } // namespace avk

@@ -113,6 +113,27 @@ struct Gradient {
 };
 
 /**
+ * @brief Specifies CSS text wrapping overflow behaviors.
+ */
+enum class TextWrap : uint8_t {
+  Word,     // Standard CSS 'break-word' (wraps at whitespace/punctuation)
+  Anywhere, // CSS 'overflow-wrap: anywhere' (wraps at exact character
+            // boundaries)
+  Disabled  // Disables word wrapping (single line)
+};
+
+/**
+ * @brief Specifies CSS text alignment and justification.
+ */
+enum class TextAlign : uint8_t {
+  Left,   // Start-aligned
+  Center, // Centered lines
+  Right,  // End-aligned
+  // not supported for now// Justify // Expands word spacing to fill full
+  // container width
+};
+
+/**
  * @brief Comprehensive styling definition block backing fluent modifiers.
  */
 struct Style {
@@ -122,6 +143,8 @@ struct Style {
   std::optional<float> fontSize;
   std::optional<float> letterSpacing;
   std::optional<float> lineHeight;
+  std::optional<TextWrap> textWrap;
+  std::optional<TextAlign> textAlign;
   std::optional<uint32_t> fontId;
 
   std::optional<TransitionSpec> transitionSpec;

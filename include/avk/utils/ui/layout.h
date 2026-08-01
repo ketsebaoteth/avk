@@ -9,14 +9,6 @@
 #include <print>
 
 namespace utils::layout {
-
-/**
- * @brief Handles Clay error logging output.
- */
-inline void handleClayError(Clay_ErrorData error) {
-  std::println("[Clay Layout]: {}", error.errorText.chars);
-}
-
 /**
  * @brief Generates a Clay element ID. Anonymous primitives receive sequential
  * frame counters.
@@ -43,6 +35,38 @@ inline Clay_ElementId getNextId(const char *label) {
       Clay_String{.isStaticallyAllocated = false,
                   .length = static_cast<int32_t>(std::strlen(label)),
                   .chars = label});
+}
+inline atomic::ComputedLayout getComputedLayout(Clay_ElementId id) {
+  Clay_ElementData data = Clay_GetElementData(id);
+  if (data.found) {
+    atomic::ComputedLayout layout{};
+    layout.position = glm::vec2(data.boundingBox.x, data.boundingBox.y);
+    layout.size = glm::vec2(data.boundingBox.width, data.boundingBox.height);
+    layout.found = true;
+    return layout;
+  }
+  return atomic::ComputedLayout{};
+}
+inline atomic::ComputedLayout getComputedLayout(const char *label) {
+  return getComputedLayout(getNextId(label));
+}
+
+inline atomic::ComputedLayout getComputedLayout(uint32_t elementId) {
+  return getComputedLayout(Clay_ElementId{.id = elementId});
+}
+
+inline glm::vec2 getComputedSize(const char *label) {
+  return getComputedLayout(label).size;
+}
+
+inline glm::vec2 getComputedPosition(const char *label) {
+  return getComputedLayout(label).position;
+}
+/**
+ * @brief Handles Clay error logging output.
+ */
+inline void handleClayError(Clay_ErrorData error) {
+  std::println("[Clay Layout]: {}", error.errorText.chars);
 }
 
 inline Clay_ElementId getNextId(const char *name, uint32_t seed) {
@@ -224,10 +248,6 @@ inline atomic::RenderPayload *createFramePayload(
 
   glm::vec2 totalTranslate(0.0f);
   if (uiState && !uiState->cascadingStyleStack.empty()) {
-    /**
-     * @brief Reads inherited translation (which already includes local + parent
-     * translations) preventing double-addition bug.
-     */
     totalTranslate = uiState->getActiveCascadingStyle().inheritedTranslate;
   } else {
     totalTranslate = style.translate.value_or(glm::vec2(0.0f, 0.0f));
@@ -239,9 +259,7 @@ inline atomic::RenderPayload *createFramePayload(
   payload->transformOrigin =
       style.transformOrigin.value_or(glm::vec2(0.5f, 0.5f));
 
-  // Correct 1-to-1 lockstep translation
   payload->translate = totalTranslate;
-
   payload->textOffset = textOffset;
   payload->boxShadows = style.boxShadows;
   payload->gradient = style.gradient;
@@ -251,10 +269,37 @@ inline atomic::RenderPayload *createFramePayload(
   payload->uvBounds =
       style.uvBounds.value_or(glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
   payload->objectFit = style.objectFit.value_or(atomic::ObjectFit::Fill);
+  payload->textMaxWidth = 0.0f;
+  if (auto *uiState = atomic::getUiState()) {
+    // Fixed/grown parent width pushed by Div
+    if (!uiState->textConstraintWidthStack.empty()) {
+      payload->textMaxWidth = uiState->textConstraintWidthStack.back();
+    } else if (!uiState->positioningContextStack.empty()) {
+      uint32_t parentId = uiState->positioningContextStack.back();
+      auto parentLayout = getComputedLayout(parentId);
+      if (parentLayout.found && parentLayout.width() > 0.0f) {
+        payload->textMaxWidth = parentLayout.width();
+      }
+    }
+  }
 
-  payload->fontSize = style.fontSize.value_or(16.0f);
-  payload->letterSpacing = style.letterSpacing.value_or(0.0f);
+  // Compute effective scale factor matching atomic::Text
+  constexpr float BASE_UI_SCALE = 2.0f;
+  float monitorDpi = (atomic::getVeraApp() &&
+                      atomic::getVeraApp()->getPrimaryMonitor().dpiScale > 0.0f)
+                         ? atomic::getVeraApp()->getPrimaryMonitor().dpiScale
+                         : 1.0f;
+  float effectiveScale = monitorDpi * BASE_UI_SCALE;
+
+  // Typography Payload Mapping (Scaled to physical framebuffer pixels)
+  payload->fontSize = style.fontSize.value_or(16.0f) * effectiveScale;
+  payload->letterSpacing = style.letterSpacing.value_or(0.0f) * effectiveScale;
+  payload->lineHeight = style.lineHeight.has_value()
+                            ? (style.lineHeight.value() * effectiveScale)
+                            : 0.0f;
   payload->fontWeight = style.fontWeight.value_or(400.0f);
+  payload->textWrap = style.textWrap;
+  payload->textAlign = style.textAlign;
 
   auto *ptr = payload.get();
   if (uiState) {
@@ -332,34 +377,6 @@ struct StyleCascadeGuard {
     other.active = false;
   }
 };
-
-inline atomic::ComputedLayout getComputedLayout(Clay_ElementId id) {
-  Clay_ElementData data = Clay_GetElementData(id);
-  if (data.found) {
-    atomic::ComputedLayout layout{};
-    layout.position = glm::vec2(data.boundingBox.x, data.boundingBox.y);
-    layout.size = glm::vec2(data.boundingBox.width, data.boundingBox.height);
-    layout.found = true;
-    return layout;
-  }
-  return atomic::ComputedLayout{};
-}
-
-inline atomic::ComputedLayout getComputedLayout(const char *label) {
-  return getComputedLayout(getNextId(label));
-}
-
-inline atomic::ComputedLayout getComputedLayout(uint32_t elementId) {
-  return getComputedLayout(Clay_ElementId{.id = elementId});
-}
-
-inline glm::vec2 getComputedSize(const char *label) {
-  return getComputedLayout(label).size;
-}
-
-inline glm::vec2 getComputedPosition(const char *label) {
-  return getComputedLayout(label).position;
-}
 
 inline atomic::CascadingStyle getCurrentStyle() {
   auto *uiState = atomic::getUiState();

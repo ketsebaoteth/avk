@@ -42,24 +42,30 @@ void initialize(VeraApp &veraAppPtr,
       Clay_CreateArenaWithCapacityAndMemory(totalMemorySize, g_clayArenaMemory);
   Clay_Initialize(arena, Clay_Dimensions{800, 600},
                   Clay_ErrorHandler{utils::layout::handleClayError, nullptr});
+
+  // Set measure text callback
   Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
 
-  // 1. Load Single MSDF Vector Font for Text (Inter)
+  // 1. Load Single MSDF Vector Font for Text (Roboto/Inter)
+  std::string robotoTtf = getPath("fonts/Roboto-Regular.ttf");
   std::string defaultAtlas =
       std::string(AVK_GENERATED_FONTS_DIR) + "/Roboto-Regular_atlas.png";
   std::string defaultMetrics =
       std::string(AVK_GENERATED_FONTS_DIR) + "/Roboto-Regular_metrics.csv";
-  g_uiState->defaultFontId = loadFont(defaultAtlas, defaultMetrics);
+  g_uiState->defaultFontId = loadFont(robotoTtf, defaultAtlas, defaultMetrics);
 
-  // 2. Load Single MSDF Vector Font for Icons (Lucide) - Single Vector Atlas,
-  // NO Tiers!
+  // 2. Load Single MSDF Vector Font for Icons (Lucide)
+  std::string lucideTtf = getPath("fonts/lucide.ttf");
   std::string lucideAtlas =
       std::string(AVK_GENERATED_FONTS_DIR) + "/lucide_atlas.png";
   std::string lucideMetrics =
       std::string(AVK_GENERATED_FONTS_DIR) + "/lucide_metrics.csv";
-  g_uiState->defaultIconFontIds[0] = loadFont(lucideAtlas, lucideMetrics);
+  g_uiState->defaultIconFontIds[0] =
+      loadFont(lucideTtf, lucideAtlas, lucideMetrics);
 
-  // Diagnostic check:
+  // ✅ CLEAR CLAY'S WORD MEASUREMENT CACHE AFTER FONTS ARE LOADED
+  Clay_ResetMeasureTextCache();
+
   std::println(
       "[atomicUI]: Default Inter MSDF Font loaded successfully with ID: {}",
       g_uiState->defaultFontId);
