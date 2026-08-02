@@ -77,6 +77,7 @@ public:
   VkSampler getFontSampler() const { return m_fontSampler; }
   bool registerTextureAtSlot(uint32_t slot, VkImageView view,
                              VkSampler sampler = VK_NULL_HANDLE);
+  uint32_t allocateBindlessSlot();
   // returns the extent of a texture
   VkExtent2D getTextureExtent(uint32_t index) const {
     if (index < m_textures.size() && m_textures[index]) {
@@ -108,6 +109,7 @@ private:
 
   // Managed list of active loaded textures and recycled slots
   std::vector<std::unique_ptr<Texture>> m_textures;
+  uint32_t m_nextAvailableSlot = 0;
   std::vector<uint32_t> m_freeSlots;
 };
 

@@ -25,6 +25,17 @@ struct GlyphMetrics {
   float atlasLeft{0.0f}, atlasBottom{0.0f}, atlasRight{0.0f}, atlasTop{0.0f};
 };
 
+struct loadFontConfig {
+  const char *ttfPath;
+  const char *csvPath;
+  GpuAllocator *allocator;
+  uint32_t fontTextureSlot;
+
+  float pixelSize = 32.0f;
+  uint32_t fontAtlasWidth = 512;
+  uint32_t fontAtlasHeight = 512;
+};
+
 class Font {
 public:
   Font() = default;
@@ -35,10 +46,7 @@ public:
   Font(Font &&) noexcept = default;
   Font &operator=(Font &&) noexcept = default;
 
-  bool loadFromFile(const char *ttfPath, const char *csvPath, float pixelSize,
-                    GpuAllocator *allocator, uint32_t fontTextureSlot,
-                    uint32_t emojiTextureSlot, uint32_t fontAtlasWidth = 1024,
-                    uint32_t fontAtlasHeight = 1024);
+  bool loadFromFile(loadFontConfig &config);
 
   bool loadEmojiGlyph(uint32_t glyphIndex, std::vector<uint8_t> &outPixels,
                       uint32_t &outWidth, uint32_t &outHeight);

@@ -27,7 +27,7 @@ inline void drawButtonDoc(
     // -------------------------------------------------------------------------
     // Header
     // -------------------------------------------------------------------------
-    drawHeader("The Button",
+    drawHeader("The Button 🎲",
                "At its core, a Button component is an interactive UI primitive "
                "designed to translate user intent into digital action. "
                "Supports custom content lambdas, "
@@ -100,18 +100,17 @@ inline void drawButtonDoc(
                    });
           });
 
-      CodeBlock(
-          "// Primary Dark Zinc Button\n"
-          "Button(Modifier().id(\"primary\").background(\"#18181b\"_hex)"
-          ", [&]() {\n"
-          "    Text(\"Primary\", Modifier().color(Colors::white));\n"
-          "});\n\n"
-          "// Destructive Red Button\n"
-          "Button(Modifier().id(\"destructive\").background(\"#ef4444\"_"
-          "hex), [&]() {\n"
-          "    Text(\"Destructive\", Modifier().color(Colors::white));\n"
-          "});",
-          "cpp");
+      CodeBlock("// Primary Dark Zinc Button\n"
+                "Button(Modifier().id(\"primary\").background(\"#18181b\"_hex)"
+                ", [&]() {\n"
+                "    Text(\"Primary\", Modifier().color(Colors::white));\n"
+                "});\n\n"
+                "// Destructive Red Button\n"
+                "Button(Modifier().id(\"destructive\").background(\"#ef4444\"_"
+                "hex), [&]() {\n"
+                "    Text(\"Destructive\", Modifier().color(Colors::white));\n"
+                "});",
+                "cpp");
     });
 
     // -------------------------------------------------------------------------
@@ -135,29 +134,27 @@ inline void drawButtonDoc(
               .gap(16)
               .center(),
           [&]() {
-            Button(
-                Modifier().id("btnComposer").background("#2563eb"_hex),
-                [&]() {
-                  Row(Modifier().gap(8).center(), [&]() {
-                    Icon(LucideIcon::Sparkles,
-                         Modifier().size(14, 14).color(Colors::white));
-                    Text("Generate AI Asset",
-                         Modifier().fontSize(13).fontWeight(500).color(
-                             Colors::white));
-                  });
-                });
+            Button(Modifier().id("btnComposer").background("#2563eb"_hex),
+                   [&]() {
+                     Row(Modifier().gap(8).center(), [&]() {
+                       Icon(LucideIcon::Sparkles,
+                            Modifier().size(14, 14).color(Colors::white));
+                       Text("Generate AI Asset",
+                            Modifier().fontSize(13).fontWeight(500).color(
+                                Colors::white));
+                     });
+                   });
 
-            Button(
-                Modifier().id("btnDownload").background("#10b981"_hex),
-                [&]() {
-                  Row(Modifier().gap(8).center(), [&]() {
-                    Icon(LucideIcon::Download,
-                         Modifier().size(14, 14).color(Colors::white));
-                    Text("Download File",
-                         Modifier().fontSize(13).fontWeight(500).color(
-                             Colors::white));
-                  });
-                });
+            Button(Modifier().id("btnDownload").background("#10b981"_hex),
+                   [&]() {
+                     Row(Modifier().gap(8).center(), [&]() {
+                       Icon(LucideIcon::Download,
+                            Modifier().size(14, 14).color(Colors::white));
+                       Text("Download File",
+                            Modifier().fontSize(13).fontWeight(500).color(
+                                Colors::white));
+                     });
+                   });
           });
 
       CodeBlock("Button(Modifier().id(\"aiBtn\").background(\"#2563eb\"_"
@@ -195,9 +192,7 @@ inline void drawButtonDoc(
             uint32_t springBtnId = hashLabel("TactileSpringBtn");
 
             Interaction btn = Button(
-                Modifier()
-                    .id("TactileSpringBtn")
-                    .background("#f59e0b"_hex),
+                Modifier().id("TactileSpringBtn").background("#f59e0b"_hex),
                 [&]() {
                   Text("Press For Spring Bounce",
                        Modifier().fontSize(13).fontWeight(600).color(
@@ -262,12 +257,11 @@ inline void drawButtonDoc(
             });
           });
 
-      CodeBlock(
-          "Button(Modifier().id(\"disabled\").disabled(true), [&]() {\n"
-          "    Text(\"Disabled Action\", "
-          "Modifier().color(Colors::black[400]));\n"
-          "});",
-          "cpp");
+      CodeBlock("Button(Modifier().id(\"disabled\").disabled(true), [&]() {\n"
+                "    Text(\"Disabled Action\", "
+                "Modifier().color(Colors::black[400]));\n"
+                "});",
+                "cpp");
     });
   });
 }

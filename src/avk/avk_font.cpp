@@ -73,28 +73,12 @@ Font::~Font() {
   }
 }
 
-bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
-                        float pixelSize, GpuAllocator *allocator,
-                        uint32_t fontTextureSlot, uint32_t emojiTextureSlot,
-                        uint32_t fontAtlasWidth, uint32_t fontAtlasHeight) {
-  m_pixelSize = pixelSize;
-  m_allocator = allocator;
-  m_fontTextureSlot = fontTextureSlot;
-  m_emojiTextureSlot = emojiTextureSlot;
-
-  m_fontAtlasWidth = fontAtlasWidth;
-  m_fontAtlasHeight = fontAtlasHeight;
-
-  if (m_allocator && m_allocator->getContext() &&
-      m_allocator->getContext()->getTextureManager()) {
-    VkExtent2D ext =
-        m_allocator->getContext()->getTextureManager()->getTextureExtent(
-            fontTextureSlot);
-    if (ext.width > 0 && ext.height > 0) {
-      m_fontAtlasWidth = ext.width;
-      m_fontAtlasHeight = ext.height;
-    }
-  }
+bool Font::loadFromFile(loadFontConfig &config) {
+  m_pixelSize = config.pixelSize;
+  m_allocator = config.allocator;
+  m_fontTextureSlot = config.fontTextureSlot;
+  m_fontAtlasWidth = config.fontAtlasWidth;
+  m_fontAtlasHeight = config.fontAtlasHeight;
 
   static FT_Library ftLibrary = []() {
     FT_Library lib;
@@ -102,23 +86,14 @@ bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
     return lib;
   }();
 
-  if (FT_New_Face(ftLibrary, ttfPath, 0, &m_ftFace) != 0) {
-    std::string path1 = "assets/fonts/" + std::string(ttfPath);
-    if (FT_New_Face(ftLibrary, path1.c_str(), 0, &m_ftFace) != 0) {
-      std::string path2 = "../assets/fonts/" + std::string(ttfPath);
-      if (FT_New_Face(ftLibrary, path2.c_str(), 0, &m_ftFace) != 0) {
-        std::string path3 = "assets/" + std::string(ttfPath);
-        if (FT_New_Face(ftLibrary, path3.c_str(), 0, &m_ftFace) != 0) {
-          std::println(
-              "[atomicUI]: ERROR! FT_New_Face failed to locate TTF font: {}",
-              ttfPath);
-          return false;
-        }
-      }
-    }
+  if (FT_New_Face(ftLibrary, config.ttfPath, 0, &m_ftFace) != 0) {
+    std::println("[atomicUI]: CRITICAL ERROR! FT_New_Face failed to open font "
+                 "at explicitly resolved path: {}",
+                 config.ttfPath);
+    return false;
   }
 
-  if (FT_Set_Pixel_Sizes(m_ftFace, 0, static_cast<FT_UInt>(pixelSize)) != 0) {
+  if (FT_Set_Pixel_Sizes(m_ftFace, 0, static_cast<FT_UInt>(m_pixelSize)) != 0) {
     FT_Done_Face(m_ftFace);
     m_ftFace = nullptr;
     return false;
@@ -133,7 +108,7 @@ bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
 
   hb_ft_font_set_funcs(m_hbFont);
 
-  if (!loadMetricsCsv(csvPath)) {
+  if (!loadMetricsCsv(config.csvPath)) {
     return false;
   }
 
@@ -185,6 +160,10 @@ bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
   // m_emojiTextureSlot
   if (m_allocator && m_allocator->getContext() &&
       m_allocator->getContext()->getTextureManager()) {
+
+    m_emojiTextureSlot =
+        m_allocator->getContext()->getTextureManager()->allocateBindlessSlot();
+
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = m_emojiAtlasImage.getImage();
@@ -204,7 +183,6 @@ bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
     }
   }
 
-  // 4. Load OS System Color Emoji Fallback Font with FT_Select_Size
   std::string emojiFontPath = atomic::getPath("fonts/NotoColorEmoji.ttf");
   if (!std::filesystem::exists(emojiFontPath)) {
     emojiFontPath = resolveSystemFontPath("NotoColorEmoji");
@@ -216,14 +194,15 @@ bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
         if (m_ftEmojiFace->num_fixed_sizes > 0) {
           FT_Select_Size(m_ftEmojiFace, 0);
         } else {
-          FT_Set_Pixel_Sizes(m_ftEmojiFace, 0, static_cast<FT_UInt>(pixelSize));
+          FT_Set_Pixel_Sizes(m_ftEmojiFace, 0,
+                             static_cast<FT_UInt>(m_pixelSize));
         }
       }
     }
   }
 
   if (m_ftFace) {
-    std::string pathStr(ttfPath);
+    std::string pathStr(config.ttfPath);
     std::transform(pathStr.begin(), pathStr.end(), pathStr.begin(), ::tolower);
     if (m_ftFace->descender == 0 ||
         pathStr.find("lucide") != std::string::npos ||
@@ -237,49 +216,110 @@ bool Font::loadFromFile(const char *ttfPath, const char *csvPath,
 }
 
 bool Font::loadMetricsCsv(const char *csvPath) {
-  std::ifstream file(csvPath);
+  std::ifstream file(csvPath, std::ios::binary | std::ios::ate);
   if (!file.is_open()) {
     return false;
   }
 
-  std::string line;
-  std::getline(file, line);
+  std::streamsize fileSize = file.tellg();
+  file.seekg(0, std::ios::beg);
 
-  while (std::getline(file, line)) {
-    if (line.empty())
+  std::string fileBuffer;
+  fileBuffer.resize(static_cast<size_t>(fileSize));
+  if (!file.read(fileBuffer.data(), fileSize)) {
+    return false;
+  }
+
+  size_t estimatedLines =
+      std::count(fileBuffer.begin(), fileBuffer.end(), '\n');
+  m_codepointMetricsMap.reserve(estimatedLines);
+  m_glyphIndexMetricsMap.reserve(estimatedLines);
+
+  const char *current = fileBuffer.data();
+  const char *const end = current + fileBuffer.size();
+
+  while (current < end && *current != '\n' && *current != '\r') {
+    current++;
+  }
+  if (current < end)
+    current++;
+
+  auto parseNextFloat = [&current, end](float &outVal) -> bool {
+    while (current < end && (*current == ',' || *current == ' ' ||
+                             *current == '\r' || *current == '\n')) {
+      current++;
+    }
+    if (current >= end)
+      return false;
+
+    char *nextChar = nullptr;
+    outVal = std::strtof(current, &nextChar);
+    if (nextChar == current)
+      return false;
+
+    current = nextChar;
+    return true;
+  };
+
+  auto parseNextUint = [&current, end](uint32_t &outVal) -> bool {
+    while (current < end && (*current == ',' || *current == ' ' ||
+                             *current == '\r' || *current == '\n')) {
+      current++;
+    }
+    if (current >= end)
+      return false;
+
+    char *nextChar = nullptr;
+    outVal = static_cast<uint32_t>(std::strtoul(current, &nextChar, 10));
+    if (nextChar == current)
+      return false;
+
+    current = nextChar;
+    return true;
+  };
+
+  while (current < end) {
+    // Skip residual blank rows or whitespace tracking characters
+    if (*current == '\n' || *current == '\r' || *current == ' ') {
+      current++;
       continue;
-
-    std::stringstream ss(line);
-    std::string val;
-    std::vector<std::string> tokens;
-
-    while (std::getline(ss, val, ',')) {
-      tokens.push_back(val);
     }
 
-    if (tokens.size() >= 10) {
-      GlyphMetrics gm{};
-      gm.codepoint = static_cast<uint32_t>(std::stoul(tokens[0]));
-      gm.advance = std::stof(tokens[1]);
-      gm.planeLeft = std::stof(tokens[2]);
-      gm.planeBottom = std::stof(tokens[3]);
-      gm.planeRight = std::stof(tokens[4]);
-      gm.planeTop = std::stof(tokens[5]);
-      gm.atlasLeft = std::stof(tokens[6]);
-      gm.atlasBottom = std::stof(tokens[7]);
-      gm.atlasRight = std::stof(tokens[8]);
-      gm.atlasTop = std::stof(tokens[9]);
+    GlyphMetrics gm{};
 
-      m_codepointMetricsMap[gm.codepoint] = gm;
+    // In-place parsing sequentially through our extracted structural variables
+    if (!parseNextUint(gm.codepoint))
+      continue;
+    if (!parseNextFloat(gm.advance))
+      continue;
+    if (!parseNextFloat(gm.planeLeft))
+      continue;
+    if (!parseNextFloat(gm.planeBottom))
+      continue;
+    if (!parseNextFloat(gm.planeRight))
+      continue;
+    if (!parseNextFloat(gm.planeTop))
+      continue;
+    if (!parseNextFloat(gm.atlasLeft))
+      continue;
+    if (!parseNextFloat(gm.atlasBottom))
+      continue;
+    if (!parseNextFloat(gm.atlasRight))
+      continue;
+    if (!parseNextFloat(gm.atlasTop))
+      continue;
 
-      if (m_ftFace) {
-        FT_UInt glyphIdx = FT_Get_Char_Index(m_ftFace, gm.codepoint);
-        if (glyphIdx != 0) {
-          m_glyphIndexMetricsMap[glyphIdx] = gm;
-        }
+    // Cache assignment with no hash collisions or allocations
+    m_codepointMetricsMap[gm.codepoint] = gm;
+
+    if (m_ftFace) {
+      FT_UInt glyphIdx = FT_Get_Char_Index(m_ftFace, gm.codepoint);
+      if (glyphIdx != 0) {
+        m_glyphIndexMetricsMap[glyphIdx] = gm;
       }
     }
   }
+
   return !m_codepointMetricsMap.empty();
 }
 

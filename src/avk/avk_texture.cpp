@@ -3,6 +3,7 @@
 #include "stb/stb_image.h"
 #include <cstring>
 #include <iostream>
+#include <print>
 #include <utility>
 #include <vulkan/vulkan_core.h>
 
@@ -27,6 +28,24 @@ TextureManager::TextureManager(VulkanContext *context) : m_context(context) {
     m_freeSlots.push_back(static_cast<uint32_t>(i));
   }
 }
+
+uint32_t TextureManager::allocateBindlessSlot() {
+  if (!m_freeSlots.empty()) {
+    uint32_t recycledSlot = m_freeSlots.back();
+    m_freeSlots.pop_back();
+    return recycledSlot;
+  }
+  if (m_nextAvailableSlot >= MAX_BINDLESS_TEXTURES) {
+    std::println("[TextureManager]: CRITICAL ERROR! Out of bindless texture "
+                 "descriptor slots.");
+    return 0;
+  }
+  uint32_t newSlot = m_nextAvailableSlot;
+  m_nextAvailableSlot++;
+
+  return newSlot;
+}
+
 bool TextureManager::registerTextureAtSlot(uint32_t slot, VkImageView view,
                                            VkSampler sampler) {
   if (slot >= MAX_BINDLESS_TEXTURES || view == VK_NULL_HANDLE) {

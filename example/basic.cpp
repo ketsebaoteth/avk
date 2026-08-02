@@ -95,9 +95,6 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
   static DocNavigation docNav;
 
   Row(Modifier().background("#ffffff"_hex).size(width, height), [&]() {
-    // -------------------------------------------------------------------------
-    // Sidebar Navigation
-    // -------------------------------------------------------------------------
     Div(Modifier()
             .heightGrow()
             .padding(30, 50)

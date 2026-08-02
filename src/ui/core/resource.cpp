@@ -19,21 +19,31 @@ uint32_t loadFont(const std::string &ttfPath, const std::string &atlasImagePath,
     return 0;
   }
 
-  std::string fontTtf = getPath(ttfPath);
-  std::string fontPath = getPath(atlasImagePath);
-  std::string csvPath = getPath(metricsCsvPath);
-
-  // Load MSDF PNG atlas using loadFontTexture to apply m_fontSampler!
   uint32_t fontSlot =
-      uiState->context->getTextureManager()->loadFontTexture(fontPath);
-  uint32_t emojiSlot =
-      uiState->context->getTextureManager()->loadFontTexture(fontPath);
+      uiState->context->getTextureManager()->loadFontTexture(atlasImagePath);
 
   auto font = std::make_unique<avk::Font>();
-  if (!font->loadFromFile(fontTtf.c_str(), csvPath.c_str(), 32.0f,
-                          uiState->context->getAllocator(), fontSlot,
-                          emojiSlot)) {
-    std::cerr << "atomic: Failed to load font: " << fontTtf << std::endl;
+
+  VkExtent2D ext;
+  if (uiState->context && uiState->context->getTextureManager()) {
+    ext = uiState->context->getTextureManager()->getTextureExtent(fontSlot);
+    if (ext.width == 0 || ext.height == 0) {
+      std::cerr << "Font with path: " << ttfPath
+                << "atlas loaded with 0 size dimensions" << std::endl;
+    }
+  }
+
+  avk::loadFontConfig loadConfig{};
+  loadConfig.ttfPath = ttfPath.c_str();
+  loadConfig.csvPath = metricsCsvPath.c_str();
+  loadConfig.pixelSize = 32.0f;
+  loadConfig.allocator = uiState->context->getAllocator();
+  loadConfig.fontTextureSlot = fontSlot;
+  loadConfig.fontAtlasWidth = ext.width;
+  loadConfig.fontAtlasHeight = ext.height;
+
+  if (!font->loadFromFile(loadConfig)) {
+    std::cerr << "atomic: Failed to load font: " << ttfPath << std::endl;
     return 0;
   }
 
