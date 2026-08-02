@@ -152,6 +152,11 @@ UIState *getUiState();
 VeraApp *getVeraApp();
 uint32_t &getElementIdCounter();
 
+/*
+ * @breif disable atomic dev tools
+ * */
+inline void disableDevTools() { getUiState()->injectDevTools = false; }
+
 /** @brief Returns true if an element was rendered in previous frame. */
 inline bool isMounted(uint32_t elementId) {
   auto *uiState = getUiState();
