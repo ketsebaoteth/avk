@@ -290,32 +290,34 @@ public:
 
   Modifier subtleShadow(int level = 1) && {
     level = std::clamp(level, 1, 5);
-
     switch (level) {
-    case 1:
+    case 1: // light floating panel / popover
       return std::move(*this)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.04f), 4.0f, 0.0f, 1.0f)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.05f), 12.0f, 0.0f, 4.0f);
-    case 2:
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.06f), 16.0f, 0.0f, 4.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.04f), 8.0f, 0.0f, 1.0f);
+
+    case 2: // medium elevation (most sheets)
       return std::move(*this)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.05f), 6.0f, 0.0f, 2.0f)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 20.0f, 0.0f, 8.0f);
-    case 3:
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 24.0f, 0.0f, 8.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.05f), 12.0f, 0.0f, 2.0f);
+
+    case 3: // higher / modal-ish
       return std::move(*this)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.06f), 10.0f, 0.0f, 4.0f)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.10f), 32.0f, 0.0f, 12.0f);
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.10f), 36.0f, 0.0f, 12.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.06f), 16.0f, 0.0f, 4.0f);
+
     case 4:
       return std::move(*this)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 12.0f, 0.0f, 6.0f)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.14f), 48.0f, 0.0f, 20.0f);
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.12f), 48.0f, 0.0f, 16.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.07f), 20.0f, 0.0f, 6.0f);
+
     case 5:
     default:
       return std::move(*this)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.10f), 16.0f, 0.0f, 8.0f)
-          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.18f), 64.0f, 0.0f, 28.0f);
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.14f), 64.0f, 0.0f, 24.0f)
+          .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 28.0f, 0.0f, 8.0f);
     }
   }
-
   Modifier transition(float duration = 0.15f,
                       AnimationCurve curve = AnimationCurve::EaseOut()) && {
     m_style.transitionSpec =
@@ -663,7 +665,5 @@ public:
 private:
   Style m_style;
 };
-
-inline Modifier DefaultModifier() { return Modifier{}; }
 
 } // namespace atomic

@@ -4,7 +4,6 @@
 #include "glm/ext/vector_float4.hpp"
 #include "ui/components.h"
 #include "ui/core/resources.h"
-#include "ui/motion/AtomicMotion.h"
 #include "ui/utils/color.h"
 
 #include <algorithm>
@@ -88,10 +87,9 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                              .row();
 
   Div(std::move(headerStyle), [&]() {
-    Div(DefaultModifier().row().gap(10).center(), [&]() {
-      Text(options[selectedIndex], fontId,
-           DefaultModifier().color(Colors::white));
-      Image(DefaultModifier().size(12.0f, 12.0f), chevronTex,
+    Div(Modifier().row().gap(10).center(), [&]() {
+      Text(options[selectedIndex], fontId, Modifier().color(Colors::white));
+      Image(Modifier().size(12.0f, 12.0f), chevronTex,
             glm::vec4(1.0f, 1.0f, 1.0f, chevronAlpha));
     });
   });
@@ -138,7 +136,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
     float contentAlpha = animProgress;
 
     Modifier popoverStyle =
-        DefaultModifier()
+        Modifier()
             .absolute()
             .parentId(selectHeaderId.id)
             .offset(offsetX, offsetY)
@@ -182,7 +180,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
             MotionHandle{optionId.id + 0x3000}, targetOptBg, 0.12f,
             motion::AnimationCurve::EaseOut());
 
-        Modifier optStyle = DefaultModifier()
+        Modifier optStyle = Modifier()
                                 .background(animatedOptBg)
                                 .rounded(4.0f)
                                 .width(dropdownWidth - 8.0f)
@@ -192,7 +190,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
 
         Div(std::move(optStyle), [&]() {
           Text(options[i], fontId,
-               DefaultModifier().color(
+               Modifier().color(
                    isSelected ? glm::vec4(1.0f, 1.0f, 1.0f, contentAlpha)
                               : glm::vec4(0.80f, 0.80f, 0.82f, contentAlpha)));
         });

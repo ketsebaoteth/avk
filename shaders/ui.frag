@@ -26,15 +26,14 @@ layout(location = 20) flat in float inFontWeight;
 layout(location = 0) out vec4 outColor;
 layout(binding = 0) uniform sampler2D globalTextures[];
 
-// OKLab Perceptual Non-Muddy Color Mixing Functions
+// OKLab Perceptual Color Mixing
 vec3 srgb_to_oklab(vec3 c) {
     mat3 m1 = mat3(
         0.4122214708, 0.5363325363, 0.0514459929,
         0.2119034982, 0.6806995451, 0.1073969566,
         0.0883024619, 0.2817188376, 0.6299787005
     );
-    vec3 lms = m1 * c;
-    lms = pow(max(lms, vec3(0.0)), vec3(1.0/3.0));
+    vec3 lms = pow(max(m1 * c, vec3(0.0)), vec3(1.0/3.0));
     mat3 m2 = mat3(
         0.2104542553, 0.7936177850, -0.0040720468,
         1.9779984951, -2.4285922050, 0.4505937099,
@@ -60,108 +59,23 @@ vec3 oklab_to_srgb(vec3 c) {
 }
 
 float sdRoundedBox(vec2 p, vec2 b, vec4 r) {
-    float radius = r.x; 
-    if (p.x > 0.0 && p.y < 0.0) radius = r.y; 
-    else if (p.x < 0.0 && p.y > 0.0) radius = r.z; 
-    else if (p.x > 0.0 && p.y > 0.0) radius = r.w; 
-    
+    float radius = (p.x > 0.0) ? ((p.y < 0.0) ? r.y : r.w) : ((p.y < 0.0) ? r.x : r.z);
     vec2 q = abs(p) - b + vec2(radius);
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
 
-float sdCircle(vec2 p, float r) { return length(p) - r; }
-
-float sdSegment(vec2 p, vec2 a, vec2 b) {
-    vec2 pa = p - a, ba = b - a;
-    float h = clamp(dot(pa, ba)/dot(ba, ba), 0.0, 1.0);
-    return length(pa - ba*h);
-}
-
-float sdRegularPolygon(vec2 p, float r, int n) {
-    float an = 3.14159265358979323846 / float(n);
-    float he = r * cos(an);
-    float angle = atan(p.y, p.x) + 3.14159265358979323846;
-    float sector = floor(angle / (2.0 * an));
-    float a = sector * 2.0 * an + an - 3.14159265358979323846;
-    vec2 p_rot = vec2(cos(a) * p.x + sin(a) * p.y, -sin(a) * p.x + cos(a) * p.y);
-    return p_rot.x - he;
-}
-
 void main() {
+    // 1. Scissor Clip Check
     if (inPixelPos.x < inClipRect.x || inPixelPos.y < inClipRect.y ||
         inPixelPos.x > inClipRect.z || inPixelPos.y > inClipRect.w) {
         discard;
     }
 
-    vec2 exactPixelPos = floor(inPixelPos) + 0.5;
-
-    vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
-    vec2 halfSize = inRectXYWH.zw * 0.5;
-    
-    vec2 pScreen = exactPixelPos - center;
-    
-    float c = cos(inRotation);
-    float s = sin(inRotation);
-    mat2 invRot = mat2(c, s, -s, c);
-    vec2 p = (invRot * pScreen) / max(inScale, 0.0001);
-
-    float d = 0.0;
-    
-    if (inShapeType == 0) { 
-        d = sdRoundedBox(p, halfSize, inBorderRadius);
-    } else if (inShapeType == 1) { 
-        d = sdCircle(p, min(halfSize.x, halfSize.y));
-    } else if (inShapeType == 2) { 
-        vec2 localA = invRot * (inRectXYWH.xy - center) / max(inScale, 0.0001);
-        vec2 localB = invRot * (inRectXYWH.zw - center) / max(inScale, 0.0001);
-        d = sdSegment(p, localA, localB) - inStrokeThickness.x * 0.5;
-    } else if (inShapeType == 3) { 
-        int numSides = int(max(float(inTextureIndex), 3.0));
-        d = sdRegularPolygon(p, min(halfSize.x, halfSize.y), numSides);
-    }
-
-    vec4 fillColor = inFillColorA;
-    if (inFillType == 1) { 
-        // OKLab 2-Stop Linear Gradient
-        vec2 dir = inGradientEnd - inGradientStart;
-        float lenSq = dot(dir, dir);
-        if (lenSq > 0.0001) {
-            vec2 localPixelPos = p + halfSize;
-            vec2 normCoord = localPixelPos / inRectXYWH.zw;
-            float t = clamp(dot(normCoord - inGradientStart, dir) / lenSq, 0.0, 1.0);
-            
-            vec3 labA = srgb_to_oklab(inFillColorA.rgb);
-            vec3 labB = srgb_to_oklab(inFillColorB.rgb);
-            vec3 labMix = mix(labA, labB, t);
-            
-            fillColor.rgb = oklab_to_srgb(labMix);
-            fillColor.a = mix(inFillColorA.a, inFillColorB.a, t);
-        }
-    } else if (inFillType == 2) { 
-        // OKLab Radial Gradient
-        vec2 normCenter = inGradientStart;
-        float dist = distance(p / halfSize, (normCenter - vec2(0.5)) * 2.0);
-        float t = clamp(dist, 0.0, 1.0);
-        
-        vec3 labA = srgb_to_oklab(inFillColorA.rgb);
-        vec3 labB = srgb_to_oklab(inFillColorB.rgb);
-        vec3 labMix = mix(labA, labB, t);
-        
-        fillColor.rgb = oklab_to_srgb(labMix);
-        fillColor.a = mix(inFillColorA.a, inFillColorB.a, t);
-    } else if (inFillType == 8) { 
-        // Multi-Stop 1D Texture Atlas Gradient
-        vec2 dir = inGradientEnd - inGradientStart;
-        float lenSq = dot(dir, dir);
-        if (lenSq > 0.0001) {
-            vec2 localPixelPos = p + halfSize;
-            vec2 normCoord = localPixelPos / inRectXYWH.zw;
-            float t = clamp(dot(normCoord - inGradientStart, dir) / lenSq, 0.0, 1.0);
-
-            fillColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], vec2(t, 0.5));
-        }
-    } else if (inFillType == 3) {
-        // MTSDF Text Rendering (Razor-Sharp Anti-Aliased Vector Font)
+    // ------------------------------------------------------------------------
+    // FAST-PATH 1: MTSDF Vector Text Rendering (>80% of all submitted quads)
+    // Bypasses all SDF rounded box math, rotations, and gradient calculations!
+    // ------------------------------------------------------------------------
+    if (inFillType == 3) {
         vec2 safeUV = clamp(inUV, inUvBounds.xy, inUvBounds.zw);
         vec4 msd = texture(globalTextures[nonuniformEXT(inTextureIndex)], safeUV);
 
@@ -172,19 +86,15 @@ void main() {
             sd = trueSDF;
         }
 
-        float actualWeight = inFontWeight > 10.0 ? inFontWeight : 400.0;
-        float weightShift = (actualWeight - 400.0) * 0.0003;
-        sd += weightShift;
+        float actualWeight = (inFontWeight > 10.0) ? inFontWeight : 400.0;
+        sd += (actualWeight - 400.0) * 0.0003;
 
-        const float pxRange = 8.0;
-        vec2 unitRange = vec2(pxRange) / vec2(textureSize(globalTextures[nonuniformEXT(inTextureIndex)], 0));
         vec2 dx = dFdx(safeUV);
         vec2 dy = dFdy(safeUV);
         vec2 screenTexSize = inversesqrt(dx * dx + dy * dy);
-        float screenPxRange = max(0.5 * dot(unitRange, screenTexSize), 1.0);
+        float screenPxRange = max(0.5 * dot(vec2(8.0) / vec2(textureSize(globalTextures[nonuniformEXT(inTextureIndex)], 0)), screenTexSize), 1.0);
 
         float screenPxDistance = screenPxRange * (sd - 0.5);
-
         float opacity = clamp(screenPxDistance * 1.25 + 0.5, 0.0, 1.0);
 
         float finalAlpha = (inFillColorA.a > 0.01) ? inFillColorA.a : 1.0;
@@ -192,38 +102,67 @@ void main() {
         
         if (outColor.a < 0.001) discard;
         return;
-    } else if (inFillType == 7) {
-        // Standard RGBA Image & Color Emoji Texture Sampling
+    }
+
+    // ------------------------------------------------------------------------
+    // FAST-PATH 2: Standard Image / Emoji Texture Sampling
+    // ------------------------------------------------------------------------
+    if (inFillType == 7) {
         vec2 safeUV = clamp(inUV, inUvBounds.xy, inUvBounds.zw);
-        vec4 texColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], safeUV);
-        outColor = texColor * inFillColorA;
-        
+        outColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], safeUV) * inFillColorA;
         if (outColor.a < 0.001) discard;
         return;
+    }
+
+    // ------------------------------------------------------------------------
+    // Standard Shape & Box Rendering Path
+    // ------------------------------------------------------------------------
+    vec2 exactPixelPos = floor(inPixelPos) + 0.5;
+    vec2 center = inRectXYWH.xy + inRectXYWH.zw * 0.5;
+    vec2 halfSize = inRectXYWH.zw * 0.5;
+    vec2 pScreen = exactPixelPos - center;
+    
+    vec2 p = pScreen;
+    if (inRotation != 0.0) {
+        float c = cos(inRotation);
+        float s = sin(inRotation);
+        p = mat2(c, s, -s, c) * pScreen;
+    }
+    if (inScale != 1.0) {
+        p /= max(inScale, 0.0001);
+    }
+
+    float d = sdRoundedBox(p, halfSize, inBorderRadius);
+
+    vec4 fillColor = inFillColorA;
+    if (inFillType == 1) { 
+        // OKLab 2-Stop Linear Gradient
+        vec2 dir = inGradientEnd - inGradientStart;
+        float lenSq = dot(dir, dir);
+        if (lenSq > 0.0001) {
+            vec2 normCoord = (p + halfSize) / inRectXYWH.zw;
+            float t = clamp(dot(normCoord - inGradientStart, dir) / lenSq, 0.0, 1.0);
+            vec3 labMix = mix(srgb_to_oklab(inFillColorA.rgb), srgb_to_oklab(inFillColorB.rgb), t);
+            fillColor.rgb = oklab_to_srgb(labMix);
+            fillColor.a = mix(inFillColorA.a, inFillColorB.a, t);
+        }
+    } else if (inFillType == 8) { 
+        // Multi-Stop 1D Texture Atlas Gradient
+        vec2 dir = inGradientEnd - inGradientStart;
+        float lenSq = dot(dir, dir);
+        if (lenSq > 0.0001) {
+            vec2 normCoord = (p + halfSize) / inRectXYWH.zw;
+            float t = clamp(dot(normCoord - inGradientStart, dir) / lenSq, 0.0, 1.0);
+            fillColor = texture(globalTextures[nonuniformEXT(inTextureIndex)], vec2(t, 0.5));
+        }
     } else if (inFillType == 5) {
         // Outset Box-Shadow
         float spread = inFillColorB.z;
         float expand = inFillColorB.w;
-        vec2 cardHalfSize = (inRectXYWH.zw * 0.5) - vec2(expand) + vec2(spread);
-        vec4 shadowRadius = inBorderRadius + vec4(spread);
-
-        float shadowD = sdRoundedBox(p, cardHalfSize, shadowRadius);
+        vec2 cardHalfSize = halfSize - vec2(expand) + vec2(spread);
+        float shadowD = sdRoundedBox(p, cardHalfSize, inBorderRadius + vec4(spread));
         float blurRadius = max(inBlur, 0.001);
         float shadowAlpha = shadowD <= 0.0 ? 1.0 : exp(-max(shadowD, 0.0) * max(shadowD, 0.0) / (0.5 * blurRadius * blurRadius));
-
-        outColor = vec4(inFillColorA.rgb, inFillColorA.a * shadowAlpha);
-        if (outColor.a < 0.001) discard;
-        return;
-    } else if (inFillType == 6) {
-        // Inset Box-Shadow
-        float spread = inFillColorB.z;
-        vec2 shadowHalfSize = (inRectXYWH.zw * 0.5) - vec2(spread);
-        vec4 shadowRadius = max(inBorderRadius - vec4(spread), vec4(0.0));
-
-        float shadowD = sdRoundedBox(p, shadowHalfSize, shadowRadius);
-        float blurRadius = max(inBlur, 0.001);
-        float shadowAlpha = shadowD < 0.0 ? exp(-(-shadowD * -shadowD) / (0.5 * blurRadius * blurRadius)) : 0.0;
-
         outColor = vec4(inFillColorA.rgb, inFillColorA.a * shadowAlpha);
         if (outColor.a < 0.001) discard;
         return;
@@ -231,57 +170,22 @@ void main() {
 
     vec2 dGrad = vec2(dFdx(d), dFdy(d));
     float gradientLen = max(length(dGrad), 0.0001);
+    float aaWidth = (inBlur > 0.0) ? (0.75 + inBlur) * max(inScale, 0.0001) : (gradientLen * 0.45); 
 
-    float aaWidth = (inBlur > 0.0)
-        ? (0.75 + inBlur) * max(inScale, 0.0001)
-        : (gradientLen * 0.45); 
+    bool isAxisAligned = (abs(dGrad.x) < 0.001 || abs(dGrad.y) < 0.001) && (inRotation == 0.0);
+    float alpha = (isAxisAligned && inBlur == 0.0) ? ((d <= 0.001) ? 1.0 : 0.0) : smoothstep(aaWidth, -aaWidth, d);
 
-    bool isStraightX = abs(dGrad.x) < 0.001;
-    bool isStraightY = abs(dGrad.y) < 0.001;
-    bool isAxisAligned = (isStraightX || isStraightY) && (inRotation == 0.0);
-
-    float alpha;
-    if (isAxisAligned && inBlur == 0.0) {
-        alpha = (d <= 0.001) ? 1.0 : 0.0;
+    float maxStroke = max(max(inStrokeThickness.x, inStrokeThickness.y), max(inStrokeThickness.z, inStrokeThickness.w));
+    if (maxStroke > 0.0) {
+        float strokeThick = round(inStrokeThickness.x);
+        float innerAlpha = smoothstep(aaWidth, -aaWidth, d + strokeThick);
+        vec4 bg = vec4(fillColor.rgb * fillColor.a, fillColor.a) * alpha;
+        float strokeMask = clamp(alpha - innerAlpha, 0.0, 1.0);
+        vec4 fg = vec4(inStrokeColor.rgb * inStrokeColor.a, inStrokeColor.a) * strokeMask;
+        vec4 finalColor = fg + bg * (1.0 - fg.a);
+        outColor = (finalColor.a > 0.0001) ? vec4(finalColor.rgb / finalColor.a, finalColor.a) : vec4(0.0);
     } else {
-        alpha = smoothstep(aaWidth, -aaWidth, d);
-    }
-
-    if (inShapeType == 2) {
         outColor = vec4(fillColor.rgb, fillColor.a * alpha);
-    } else {
-        float maxStroke = max(max(inStrokeThickness.x, inStrokeThickness.y),
-                              max(inStrokeThickness.z, inStrokeThickness.w));
-        if (maxStroke > 0.0) {
-            float strokeThick = inStrokeThickness.x;
-            if (inShapeType == 0) {
-                vec2 normP = p / max(halfSize, vec2(0.0001));
-                if (abs(normP.x) > abs(normP.y)) {
-                    strokeThick = (p.x > 0.0) ? inStrokeThickness.y : inStrokeThickness.w;
-                } else {
-                    strokeThick = (p.y < 0.0) ? inStrokeThickness.x : inStrokeThickness.z;
-                }
-            }
-
-            strokeThick = round(strokeThick);
-
-            float innerD = d + strokeThick;
-            float innerAlpha = smoothstep(aaWidth, -aaWidth, innerD);
-
-            vec4 bg = vec4(fillColor.rgb * fillColor.a, fillColor.a) * alpha;
-            float strokeMask = clamp(alpha - innerAlpha, 0.0, 1.0);
-            vec4 fg = vec4(inStrokeColor.rgb * inStrokeColor.a, inStrokeColor.a) * strokeMask;
-
-            vec4 finalColor = fg + bg * (1.0 - fg.a);
-
-            if (finalColor.a > 0.0001) {
-                outColor = vec4(finalColor.rgb / finalColor.a, finalColor.a);
-            } else {
-                outColor = vec4(0.0);
-            }
-        } else {
-            outColor = vec4(fillColor.rgb, fillColor.a * alpha);
-        }
     }
 
     if (outColor.a < 0.001) discard;

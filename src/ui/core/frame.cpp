@@ -2,7 +2,9 @@
 #include "Vera/src/vera_windowing/core/app/Types.h"
 #include "avk/avk_font.h"
 #include "avk/avk_textLayout.h"
+#include "tracy/Tracy.hpp"
 #include "ui/core/gradientAtlas.h"
+#include "ui/devtools/Devtools.h"
 #include "ui/internal/context.h"
 #include "ui/style/style.h"
 #include "ui/utils/clayUtils.h"
@@ -15,49 +17,83 @@ namespace atomic {
 
 /** @brief Begins a new UI frame pass for a window. */
 bool beginFrame(VeraWindow *window) {
+  FrameMark;
   auto uiState = getUiState();
   if (!uiState || window == nullptr)
     return false;
+
+  ZoneScopedN("UI_BeginFrame");
 
   window::WindowSession *session = uiState->findSession(window);
   if (session == nullptr || !session->canvas->isActive())
     return false;
 
-  uiState->anyInputBoxHovered = false;
+  {
+    ZoneScopedN("UI_State_Reset");
+    uiState->anyInputBoxHovered = false;
 
-  uiState->computedStyleMap.clear();
-  uiState->positioningContextStack.clear();
-  uiState->cascadingStyleStack.clear();
+    uiState->computedStyleMap.clear();
+    uiState->positioningContextStack.clear();
+    uiState->cascadingStyleStack.clear();
 
-  uiState->previousLifecycleMap = std::move(uiState->currentLifecycleMap);
-  uiState->currentLifecycleMap.clear();
+    uiState->previousLifecycleMap = std::move(uiState->currentLifecycleMap);
+    uiState->currentLifecycleMap.clear();
 
-  uiState->previousFocusedElementId = uiState->focusedElementId;
+    uiState->previousFocusedElementId = uiState->focusedElementId;
 
-  /**
-   * @brief 4. Update pointer state & delta timers.
-   */
-  setClayCursorState(uiState->pointerPos, uiState->pointerDown);
-  calcFrameDeltaTime(session);
+    setClayCursorState(uiState->pointerPos, uiState->pointerDown);
+    calcFrameDeltaTime(session);
 
-  /**
-   * @brief 5. Tick active MotionManager animations & timelines.
-   */
-  uiState->motionManager.tick(session->lastDeltaTime);
+    /**
+     * @brief Frame Data Metrics Calculation (FPS & Frame Time ms)
+     */
+    if (session->lastDeltaTime > 0.00001f) {
+      float rawFrameTime = session->lastDeltaTime * 1000.0f;
+      float rawFps = 1.0f / session->lastDeltaTime;
 
-  resetGlobalIdCounter();
+      if (uiState->fps <= 0.0f) {
+        uiState->frameTimeMs = rawFrameTime;
+        uiState->fps = rawFps;
+      } else {
+        uiState->frameTimeMs =
+            uiState->frameTimeMs * 0.9f + rawFrameTime * 0.1f;
+        uiState->fps = uiState->fps * 0.9f + rawFps * 0.1f;
+      }
+    }
+  }
 
-  auto state = window->getState();
-  setClayDimensions(state);
-  Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
-  Clay_BeginLayout();
+  {
+    ZoneScopedN("MotionManager_Tick");
+    uiState->motionManager.tick(session->lastDeltaTime);
+  }
 
-  auto val = session->canvas->beginFrame();
+  {
+    ZoneScopedN("Clay_Layout_Setup");
+    resetGlobalIdCounter();
+
+    auto state = window->getState();
+    setClayDimensions(state);
+    Clay_SetMeasureTextFunction(measureTextCallback, nullptr);
+    Clay_BeginLayout();
+
+    if (uiState->injectDevTools)
+      drawDevToolsDock(window);
+  }
+
+  // --------------------------------------------------------------------------
+  // Vulkan Swapchain VSync Wait (CPU idle time waiting for presentation)
+  // --------------------------------------------------------------------------
+  auto val = [&]() {
+    ZoneScopedN("Vulkan_Swapchain_VSync_Wait");
+    return session->canvas->beginFrame();
+  }();
+
   return val;
 }
 
 /** @brief Ends layout evaluation and submits rendering instances to GPU. */
 void endFrame(VeraWindow *window) {
+  ZoneScopedN("UI_EndFrame");
   auto uiState = getUiState();
   if (!uiState)
     return;
@@ -77,6 +113,7 @@ void endFrame(VeraWindow *window) {
 
   std::vector<Clay_BoundingBox> clipStack;
   [[maybe_unused]] Clay_BoundingBox *currentClip = nullptr;
+  uint32_t currentFrameDrawCalls = 0; // Submitted instance counter
 
   auto getPivotTransformedCoords = [](const Clay_BoundingBox &box, float scale,
                                       float rotation, const glm::vec2 &origin,
@@ -116,13 +153,31 @@ void endFrame(VeraWindow *window) {
     }
 
     glm::vec4 activeClipRect;
-    if (!clipStack.empty()) {
+    bool hasActiveClip = !clipStack.empty();
+
+    if (hasActiveClip) {
       const auto &clip = clipStack.back();
       activeClipRect = glm::vec4(std::round(clip.x), std::round(clip.y),
                                  std::round(clip.x + clip.width),
                                  std::round(clip.y + clip.height));
     } else {
       activeClipRect = glm::vec4(-10000.0f, -10000.0f, 200000.0f, 200000.0f);
+    }
+
+    // ------------------------------------------------------------------------
+    // Scissor Viewport Frustum Culling (64px margin for shadows & ascenders)
+    // Skips HarfBuzz shaping and GPU instance submission for off-screen items
+    // ------------------------------------------------------------------------
+    if (hasActiveClip) {
+      constexpr float CULL_MARGIN = 64.0f;
+      const auto &box = cmd->boundingBox;
+
+      if (box.x + box.width + CULL_MARGIN < activeClipRect.x ||
+          box.x - CULL_MARGIN > activeClipRect.z ||
+          box.y + box.height + CULL_MARGIN < activeClipRect.y ||
+          box.y - CULL_MARGIN > activeClipRect.w) {
+        continue; // Cull off-screen element instantly!
+      }
     }
 
     if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_RECTANGLE) {
@@ -183,6 +238,7 @@ void endFrame(VeraWindow *window) {
         instance.rotation = elementRotation;
 
         uiState->renderer->submit(instance);
+        currentFrameDrawCalls++;
       };
 
       for (auto it = shadows.rbegin(); it != shadows.rend(); ++it) {
@@ -265,6 +321,7 @@ void endFrame(VeraWindow *window) {
       mainInstance.rotation = elementRotation;
 
       uiState->renderer->submit(mainInstance);
+      currentFrameDrawCalls++;
 
       for (const auto &s : shadows) {
         if (s.inset) {
@@ -320,6 +377,7 @@ void endFrame(VeraWindow *window) {
       instance.rotation = elementRotation;
 
       uiState->renderer->submit(instance);
+      currentFrameDrawCalls++;
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_IMAGE) {
       Clay_ImageRenderData *imageData = &cmd->renderData.image;
 
@@ -384,6 +442,7 @@ void endFrame(VeraWindow *window) {
         shadowInstance.rotation = elementRotation;
 
         uiState->renderer->submit(shadowInstance);
+        currentFrameDrawCalls++;
       };
 
       for (auto it = shadows.rbegin(); it != shadows.rend(); ++it) {
@@ -460,6 +519,7 @@ void endFrame(VeraWindow *window) {
       instance.rotation = elementRotation;
 
       uiState->renderer->submit(instance);
+      currentFrameDrawCalls++;
 
       for (const auto &s : shadows) {
         if (s.inset) {
@@ -520,9 +580,6 @@ void endFrame(VeraWindow *window) {
           case atomic::TextAlign::Right:
             alignMode = avk::TextAlignMode::Right;
             break;
-          // case atomic::TextAlign::Justify:
-          //   alignMode = avk::TextAlignMode::Justify;
-          //   break;
           default:
             alignMode = avk::TextAlignMode::Left;
             break;
@@ -548,11 +605,15 @@ void endFrame(VeraWindow *window) {
 
       for (const auto &instance : instances) {
         uiState->renderer->submit(instance);
+        currentFrameDrawCalls++;
       }
     }
   }
 
   session->canvas->endFrame(*uiState->renderer);
+
+  // Record total submitted instance draw calls for frame metrics
+  uiState->drawCalls = currentFrameDrawCalls;
 
   /**
    * @brief 1. Wipe transient payload memory safely.

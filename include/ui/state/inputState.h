@@ -23,6 +23,7 @@ struct InputState {
   bool isPotentialTextDrag = false;
   bool wasArmedByDoubleClick = false;
   bool isDraggingSelectedText = false;
+  float scrollX = 0;
 };
 
 } // namespace atomic

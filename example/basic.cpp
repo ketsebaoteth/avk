@@ -1,4 +1,3 @@
-#include "avk/utils/ui/layout.h"
 #include "core/app/App.h"
 #include "core/app/Types.h"
 #include "docs/input.h"
@@ -6,11 +5,9 @@
 #include "ui/core/frame.h"
 #include "ui/core/resources.h"
 #include "ui/generated/lucideIcons.generated.h"
-#include "ui/motion/AtomicMotion.h"
 #include "ui/style/modifier.h"
 #include "ui/style/style.h"
 #include "ui/utils/color.h"
-#include "ui/utils/extraComponents.h"
 
 // Modular documentation headers
 #include "docs/animation.h"
@@ -21,9 +18,6 @@
 #include <string>
 #include <vector>
 
-/**
- * @brief History navigation state manager ("React at home" router state).
- */
 struct DocNavigation {
   std::vector<std::string> history = {"buttonTab"};
   size_t pointer = 0;
@@ -59,18 +53,18 @@ void drawDocHeader(const std::string &title, const std::string &subtitle,
   using namespace atomic;
   using namespace atomicComponents;
 
-  Column(DefaultModifier().gap(10).widthGrow(), [&]() {
-    Row(DefaultModifier().widthGrow().center(), [&]() {
-      Text(title, DefaultModifier().fontSize(50).fontWeight(700).textColor(
+  Column(Modifier().gap(10).widthGrow(), [&]() {
+    Row(Modifier().widthGrow().center(), [&]() {
+      Text(title, Modifier().fontSize(50).fontWeight(700).textColor(
                       Colors::black[1000]));
-      Div(DefaultModifier().widthGrow());
+      Div(Modifier().widthGrow());
 
       std::string backId = idPrefix + "_goBackBtn";
       std::string fwdId = idPrefix + "_goForwardBtn";
 
       Toast(
           [&]() {
-            if (Button(DefaultModifier().id(backId),
+            if (Button(Modifier().id(backId),
                        [&]() { Icon(LucideIcon::CornerUpLeft); })
                     .clicked &&
                 nav.canBack()) {
@@ -82,7 +76,7 @@ void drawDocHeader(const std::string &title, const std::string &subtitle,
 
       Toast(
           [&]() {
-            if (Button(DefaultModifier().id(fwdId),
+            if (Button(Modifier().id(fwdId),
                        [&]() { Icon(LucideIcon::CornerUpRight); })
                     .clicked &&
                 nav.canForward()) {
@@ -92,8 +86,8 @@ void drawDocHeader(const std::string &title, const std::string &subtitle,
           },
           [&]() { Text("Go to next page"); });
     });
-    Text(subtitle, DefaultModifier().fontSize(14).fontWeight(400).textColor(
-                       Colors::black[500]));
+    Text(subtitle,
+         Modifier().fontSize(14).fontWeight(400).textColor(Colors::black[500]));
   });
 }
 
@@ -109,38 +103,38 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
   static std::string activeTab = "buttonTab";
   static DocNavigation docNav;
 
-  Row(DefaultModifier().background("#ffffff"_hex).size(width, height), [&]() {
+  Row(Modifier().background("#ffffff"_hex).size(width, height), [&]() {
     // -------------------------------------------------------------------------
     // Sidebar Navigation
     // -------------------------------------------------------------------------
-    Div(DefaultModifier()
+    Div(Modifier()
             .heightGrow()
             .padding(30, 50)
             .column()
             .gap(10)
+            .border(Colors::gray[100], {0.0f, 1.0f, 0.0f, 0.0f})
             .relative(),
         [&]() {
-          Div(DefaultModifier()
-                  .absolute()
-                  .right(0)
-                  .width(1.0f)
-                  .heightGrow()
-                  .linearGradient(180.0f, {
-                                              {Colors::transparent, 0.2f},
-                                              {Colors::gray[200], 0.5f},
-                                              {Colors::transparent, 0.8f},
-                                          }));
+          // Div(Modifier()
+          //         .absolute()
+          //         .right(0)
+          //         .width(1.0f)
+          //         .heightGrow()
+          //         .linearGradient(180.0f, {
+          //                                     {Colors::transparent, 0.2f},
+          //                                     {Colors::gray[200], 0.5f},
+          //                                     {Colors::transparent, 0.8f},
+          //                                 }));
 
-          Text("Gallery", DefaultModifier()
+          Text("Gallery", Modifier()
                               .background(Colors::red[1000])
                               .fontSize(50)
                               .fontWeight(600)
                               .color("#000000"_hex));
           TextInput(searchInput, "search ...",
-                    DefaultModifier().id("searchField").width(500));
+                    Modifier().id("searchField").width(500));
 
-          Div(DefaultModifier().column().heightGrow().widthGrow().padding(5,
-                                                                          50),
+          Div(Modifier().column().heightGrow().widthGrow().padding(5, 50),
               [&]() {
                 if (TabButton("buttonTab", "Button", activeTab)) {
                   activeTab = "buttonTab";
@@ -164,31 +158,30 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
     // -------------------------------------------------------------------------
     // Documentation Content Viewport
     // -------------------------------------------------------------------------
-    ScrollView(
-        DefaultModifier().heightGrow().id("DocsScrollView").widthGrow(), [&]() {
-          Div(DefaultModifier()
-                  .padding(200, 150)
-                  .alignX(AlignmentX::Center)
-                  .column()
-                  .widthGrow()
-                  .heightGrow(),
-              [&]() {
-                auto headerBinder = [&](const std::string &title,
-                                        const std::string &subtitle) {
-                  drawDocHeader(title, subtitle, docNav, activeTab, activeTab);
-                };
+    ScrollView(Modifier().heightGrow().id("DocsScrollView").widthGrow(), [&]() {
+      Div(Modifier()
+              .padding(200, 150)
+              .alignX(AlignmentX::Center)
+              .column()
+              .widthGrow()
+              .heightGrow(),
+          [&]() {
+            auto headerBinder = [&](const std::string &title,
+                                    const std::string &subtitle) {
+              drawDocHeader(title, subtitle, docNav, activeTab, activeTab);
+            };
 
-                if (activeTab == "buttonTab") {
-                  atomic::docs::drawButtonDoc(headerBinder);
-                } else if (activeTab == "divTab") {
-                  atomic::docs::drawDivDoc(headerBinder);
-                } else if (activeTab == "inputTab") { // <-- ADD THIS
-                  atomic::docs::drawInputDoc(headerBinder);
-                } else if (activeTab == "animationTab") {
-                  atomic::docs::drawAnimationDoc(headerBinder);
-                }
-              });
-        });
+            if (activeTab == "buttonTab") {
+              atomic::docs::drawButtonDoc(headerBinder);
+            } else if (activeTab == "divTab") {
+              atomic::docs::drawDivDoc(headerBinder);
+            } else if (activeTab == "inputTab") { // <-- ADD THIS
+              atomic::docs::drawInputDoc(headerBinder);
+            } else if (activeTab == "animationTab") {
+              atomic::docs::drawAnimationDoc(headerBinder);
+            }
+          });
+    });
   });
 }
 

@@ -2,7 +2,6 @@
 #include "avk/utils/ui/layout.h"
 #include "clay.h"
 #include "ui/components.h"
-#include "ui/motion/AtomicMotion.h"
 
 #include <algorithm>
 #include <cmath>
@@ -234,7 +233,7 @@ void ScrollView(Modifier &&modifier, ScrollViewConfig config,
 
     std::string thumbLabel = "ScrollbarThumb_" + std::to_string(scrollId.id);
 
-    Div(DefaultModifier()
+    Div(Modifier()
             .id(thumbLabel)
             .absolute()
             .parentId(scrollId.id)

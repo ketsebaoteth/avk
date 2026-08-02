@@ -20,7 +20,7 @@ inline void drawDivDoc(
   using namespace atomicComponents;
   using namespace atomic::extras;
 
-  Column(DefaultModifier().gap(32).widthGrow(), [&]() {
+  Column(Modifier().gap(32).widthGrow(), [&]() {
     drawHeader(
         "The Div",
         "A structural layout primitive that manages child alignment, "
@@ -29,15 +29,15 @@ inline void drawDivDoc(
         "fills, borders, and built-in property interpolation for smooth "
         "layout updates.");
 
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
+    Column(Modifier().gap(12).widthGrow(), []() {
       Text("1. Layout Direction & Spacing (Row vs Column)",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+           Modifier().fontSize(18).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Control child distribution using flex directions (.row(), "
            ".column()) and child gap spacing (.gap(12)).",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(30)
               .background("#ffffff"_hex)
@@ -48,28 +48,28 @@ inline void drawDivDoc(
               .center(),
           [&]() {
             // Row Layout
-            Div(DefaultModifier().row().gap(12).center(), [&]() {
-              Div(DefaultModifier()
+            Div(Modifier().row().gap(12).center(), [&]() {
+              Div(Modifier()
                       .size(40, 40)
                       .background("#3b82f6"_hex)
                       .rounded(8.0f));
-              Div(DefaultModifier()
+              Div(Modifier()
                       .size(40, 40)
                       .background("#10b981"_hex)
                       .rounded(8.0f));
-              Div(DefaultModifier()
+              Div(Modifier()
                       .size(40, 40)
                       .background("#f59e0b"_hex)
                       .rounded(8.0f));
             });
 
             // Column Layout
-            Div(DefaultModifier().column().gap(8).center(), [&]() {
-              Div(DefaultModifier()
+            Div(Modifier().column().gap(8).center(), [&]() {
+              Div(Modifier()
                       .size(120, 24)
                       .background("#e4e4e7"_hex)
                       .rounded(6.0f));
-              Div(DefaultModifier()
+              Div(Modifier()
                       .size(120, 24)
                       .background("#d4d4d8"_hex)
                       .rounded(6.0f));
@@ -77,15 +77,15 @@ inline void drawDivDoc(
           });
 
       CodeBlock("// Row Layout with 12px gap\n"
-                "Div(DefaultModifier().row().gap(12).center(), [&]() {\n"
-                "    Div(DefaultModifier().size(40, "
+                "Div(Modifier().row().gap(12).center(), [&]() {\n"
+                "    Div(Modifier().size(40, "
                 "40).background(\"#3b82f6\"_hex));\n"
-                "    Div(DefaultModifier().size(40, "
+                "    Div(Modifier().size(40, "
                 "40).background(\"#10b981\"_hex));\n"
                 "});\n\n"
                 "// Column Layout with 8px gap\n"
-                "Div(DefaultModifier().column().gap(8).center(), [&]() {\n"
-                "    Div(DefaultModifier().size(120, "
+                "Div(Modifier().column().gap(8).center(), [&]() {\n"
+                "    Div(Modifier().size(120, "
                 "24).background(\"#e4e4e7\"_hex));\n"
                 "});",
                 "cpp");
@@ -94,16 +94,16 @@ inline void drawDivDoc(
     // -------------------------------------------------------------------------
     // 2. Outer Margins & Inner Padding
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
+    Column(Modifier().gap(12).widthGrow(), []() {
       Text("2. Outer Margins vs Inner Padding",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+           Modifier().fontSize(18).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Div transparently wraps elements with an outer margin padding "
            "container when margins are specified (.margin(20)), cleanly "
            "separating outer spacing from inner padding (.padding(16)).",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(30)
               .background("#ffffff"_hex)
@@ -111,7 +111,7 @@ inline void drawDivDoc(
               .rounded(12.0f)
               .center(),
           [&]() {
-            Div(DefaultModifier()
+            Div(Modifier()
                     .margin(20)
                     .padding(24)
                     .background("#18181b"_hex)
@@ -120,13 +120,13 @@ inline void drawDivDoc(
                     .center(),
                 [&]() {
                   Text("Outer Margin (20px) & Inner Padding (24px)",
-                       DefaultModifier().fontSize(13).fontWeight(500).color(
+                       Modifier().fontSize(13).fontWeight(500).color(
                            Colors::white));
                 });
           });
 
       CodeBlock(
-          "Div(DefaultModifier()\n"
+          "Div(Modifier()\n"
           "    .margin(20)              // Creates transparent outer spacing "
           "wrapper\n"
           "    .padding(24)             // Applies internal content padding\n"
@@ -142,15 +142,15 @@ inline void drawDivDoc(
     // -------------------------------------------------------------------------
     // 3. Modern Fills (Gradients & Glassmorphism)
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
+    Column(Modifier().gap(12).widthGrow(), []() {
       Text("3. Modern Fills (Gradients & Glassmorphism)",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+           Modifier().fontSize(18).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Apply multi-stop OKLab linear or radial gradients, borders, and "
            "backdrop blurs directly to containers.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(30)
               .background("#ffffff"_hex)
@@ -161,7 +161,7 @@ inline void drawDivDoc(
               .center(),
           [&]() {
             // Linear Gradient Box
-            Div(DefaultModifier()
+            Div(Modifier()
                     .size(160, 80)
                     .rounded(12.0f)
                     .linearGradient(135.0f,
@@ -172,12 +172,12 @@ inline void drawDivDoc(
                     .center(),
                 [&]() {
                   Text("Linear Gradient",
-                       DefaultModifier().fontSize(12).fontWeight(600).color(
+                       Modifier().fontSize(12).fontWeight(600).color(
                            Colors::white));
                 });
 
             // Glassmorphic Card
-            Div(DefaultModifier()
+            Div(Modifier()
                     .size(160, 80)
                     .rounded(12.0f)
                     .background(glm::vec4(0.09f, 0.09f, 0.11f, 0.85f))
@@ -186,19 +186,19 @@ inline void drawDivDoc(
                     .center(),
                 [&]() {
                   Text("Glassmorphism",
-                       DefaultModifier().fontSize(12).fontWeight(600).color(
+                       Modifier().fontSize(12).fontWeight(600).color(
                            Colors::white));
                 });
           });
 
       CodeBlock("// Vibrant 2-Stop Linear Gradient\n"
-                "Div(DefaultModifier()\n"
+                "Div(Modifier()\n"
                 "    .size(160, 80)\n"
                 "    .linearGradient(135.0f, {{\"#2563eb\"_hex, 0.0f}, "
                 "{\"#7c3aed\"_hex, 1.0f}})\n"
                 ");\n\n"
                 "// Glassmorphic Card with Blur\n"
-                "Div(DefaultModifier()\n"
+                "Div(Modifier()\n"
                 "    .size(160, 80)\n"
                 "    .background(glm::vec4(0.09f, 0.09f, 0.11f, 0.85f))\n"
                 "    .blur(16.0f)\n"

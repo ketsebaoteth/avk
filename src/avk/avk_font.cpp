@@ -3,13 +3,13 @@
 
 #include "avk/avk_core.h"
 #include "glm/ext/vector_float2.hpp"
+#include "tracy/Tracy.hpp"
 #include "ui/core/resources.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <print>
 #include <sstream>
 
@@ -550,7 +550,7 @@ Font::layoutText(std::string_view text, glm::vec2 position,
                  const glm::vec2 &transformOrigin, const glm::vec2 &translate,
                  float lineHeight, avk::TextWrapMode wrapMode,
                  avk::TextAlignMode alignMode) {
-
+  ZoneScopedN("Font_LayoutText_HarfBuzz");
   std::vector<avk::InstanceData> instances;
   if (text.empty() || !m_hbFont) {
     return instances;

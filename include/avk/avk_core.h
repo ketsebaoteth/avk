@@ -5,6 +5,10 @@
 #include <memory>
 #include <volk.h>
 
+#ifdef TRACY_ENABLE
+#include <tracy/TracyVulkan.hpp>
+#endif
+
 namespace avk {
 
 class GpuAllocator;
@@ -20,7 +24,7 @@ public:
 };
 
 /**
- * @brief Vulkan 1.3 Core Context .
+ * @brief Vulkan 1.3 Core Context.
  */
 class VulkanContext {
 public:
@@ -59,6 +63,10 @@ public:
     return m_textureManager.get();
   }
 
+#ifdef TRACY_ENABLE
+  [[nodiscard]] TracyVkCtx getTracyVkCtx() const { return m_tracyVkCtx; }
+#endif
+
 private:
   bool createInstance(bool enableValidation);
   bool setupDebugMessenger(bool enableValidation);
@@ -82,6 +90,11 @@ private:
   std::unique_ptr<GpuAllocator> m_allocator;
   std::unique_ptr<TextureManager> m_textureManager;
 
+#ifdef TRACY_ENABLE
+  TracyVkCtx m_tracyVkCtx = nullptr;
+  VkCommandPool m_tracyCommandPool = VK_NULL_HANDLE;
+  VkCommandBuffer m_tracyCommandBuffer = VK_NULL_HANDLE;
+#endif
   bool m_isValid = false;
 };
 

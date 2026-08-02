@@ -19,8 +19,8 @@ inline Clay_ElementId getNextId(const char *label) {
       std::strcmp(label, "Checkbox") == 0 ||
       std::strcmp(label, "Switch") == 0 ||
       std::strcmp(label, "ScrollView") == 0 ||
-      std::strcmp(label, "ToastTrigger") == 0) {
-
+      std::strcmp(label, "ToastTrigger") == 0 ||
+      std::strcmp(label, "TextInput") == 0) {
     char buffer[64];
     uint32_t currentId = atomic::getElementIdCounter()++;
     std::snprintf(buffer, sizeof(buffer), "%s_%u", label, currentId);

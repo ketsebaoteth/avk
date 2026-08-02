@@ -41,6 +41,30 @@ VulkanContext::VulkanContext(std::optional<VeraNativeHandle> nativeDisplay,
 
   m_isValid = true;
   m_textureManager = std::make_unique<TextureManager>(this);
+#ifdef TRACY_ENABLE
+  // Initialize Tracy Vulkan GPU Context with a persistent command pool & buffer
+  VkCommandPoolCreateInfo tracyPoolInfo{};
+  tracyPoolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+  tracyPoolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  tracyPoolInfo.queueFamilyIndex = m_queueFamilies.graphicsFamily;
+
+  if (vkCreateCommandPool(m_device, &tracyPoolInfo, nullptr,
+                          &m_tracyCommandPool) == VK_SUCCESS) {
+    VkCommandBufferAllocateInfo tracyAllocInfo{};
+    tracyAllocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    tracyAllocInfo.commandPool = m_tracyCommandPool;
+    tracyAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    tracyAllocInfo.commandBufferCount = 1;
+
+    if (vkAllocateCommandBuffers(m_device, &tracyAllocInfo,
+                                 &m_tracyCommandBuffer) == VK_SUCCESS) {
+      // TracyVkContext internal calibration recordings run on
+      // m_tracyCommandBuffer
+      m_tracyVkCtx = TracyVkContext(m_physicalDevice, m_device, m_graphicsQueue,
+                                    m_tracyCommandBuffer);
+    }
+  }
+#endif
 }
 
 VulkanContext::~VulkanContext() { releaseResources(); }
@@ -76,6 +100,18 @@ VulkanContext &VulkanContext::operator=(VulkanContext &&other) noexcept {
 }
 
 void VulkanContext::releaseResources() {
+#ifdef TRACY_ENABLE
+  if (m_tracyVkCtx != nullptr) {
+    TracyVkDestroy(m_tracyVkCtx);
+    m_tracyVkCtx = nullptr;
+  }
+
+  if (m_tracyCommandPool != VK_NULL_HANDLE) {
+    vkDestroyCommandPool(m_device, m_tracyCommandPool, nullptr);
+    m_tracyCommandPool = VK_NULL_HANDLE;
+    m_tracyCommandBuffer = VK_NULL_HANDLE;
+  }
+#endif
   m_textureManager.reset();
   m_allocator.reset();
 
@@ -157,40 +193,79 @@ bool VulkanContext::createInstance(bool enableValidation) {
   appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.apiVersion = VK_API_VERSION_1_3;
 
+  // 1. Query available instance extensions supported by Driver / RenderDoc
+  uint32_t extensionCount = 0;
+  vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
+  std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+  vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount,
+                                         availableExtensions.data());
+
+  auto isExtensionSupported = [&](const char *extName) {
+    for (const auto &ext : availableExtensions) {
+      if (std::strcmp(ext.extensionName, extName) == 0)
+        return true;
+    }
+    return false;
+  };
+
+  std::vector<const char *> extensions;
+  if (isExtensionSupported(VK_KHR_SURFACE_EXTENSION_NAME)) {
+    extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+  }
+
+#if defined(VERA_PLATFORM_WIN32)
+  if (isExtensionSupported("VK_KHR_win32_surface")) {
+    extensions.push_back("VK_KHR_win32_surface");
+  }
+#elif defined(VERA_PLATFORM_LINUX)
+  // Only push surface extensions actually exposed by the active environment
+  if (isExtensionSupported("VK_KHR_wayland_surface")) {
+    extensions.push_back("VK_KHR_wayland_surface");
+  }
+  if (isExtensionSupported("VK_KHR_xlib_surface")) {
+    extensions.push_back("VK_KHR_xlib_surface");
+  }
+  if (isExtensionSupported("VK_KHR_xcb_surface")) {
+    extensions.push_back("VK_KHR_xcb_surface");
+  }
+#endif
+
+  // 2. Query available validation layers
+  uint32_t layerCount = 0;
+  vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+  std::vector<VkLayerProperties> availableLayers(layerCount);
+  vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
+
+  bool validationSupported = false;
+  if (enableValidation) {
+    for (const auto &layer : availableLayers) {
+      if (std::strcmp(layer.layerName, "VK_LAYER_KHRONOS_validation") == 0) {
+        validationSupported = true;
+        break;
+      }
+    }
+  }
+
+  std::vector<const char *> validationLayers;
+  if (enableValidation && validationSupported) {
+    validationLayers.push_back("VK_LAYER_KHRONOS_validation");
+    if (isExtensionSupported(VK_EXT_DEBUG_UTILS_EXTENSION_NAME)) {
+      extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    }
+  }
+
   VkInstanceCreateInfo createInfo{};
   createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
   createInfo.pApplicationInfo = &appInfo;
-
-  std::vector<const char *> extensions;
-  extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
-
-#if defined(VERA_PLATFORM_WIN32)
-  extensions.push_back("VK_KHR_win32_surface");
-#elif defined(VERA_PLATFORM_LINUX)
-  extensions.push_back("VK_KHR_wayland_surface");
-  extensions.push_back("VK_KHR_xlib_surface");
-#endif
-
-  if (enableValidation) {
-    extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-  }
-
   createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
   createInfo.ppEnabledExtensionNames = extensions.data();
+  createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
+  createInfo.ppEnabledLayerNames = validationLayers.data();
 
-  const std::vector<const char *> validationLayers = {
-      "VK_LAYER_KHRONOS_validation"};
-
-  if (enableValidation) {
-    createInfo.enabledLayerCount =
-        static_cast<uint32_t>(validationLayers.size());
-    createInfo.ppEnabledLayerNames = validationLayers.data();
-  } else {
-    createInfo.enabledLayerCount = 0;
-  }
-
-  if (vkCreateInstance(&createInfo, nullptr, &m_instance) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct Vulkan 1.3 Instance." << std::endl;
+  VkResult result = vkCreateInstance(&createInfo, nullptr, &m_instance);
+  if (result != VK_SUCCESS) {
+    std::cerr << "avk: vkCreateInstance failed with error code: " << result
+              << std::endl;
     return false;
   }
 
@@ -308,8 +383,8 @@ bool VulkanContext::createLogicalDevice() {
   features12.shaderSampledImageArrayNonUniformIndexing =
       VK_TRUE; // Enabled for nonuniformEXT in GLSL
 
-  // 2. Request Vulkan 1.3 Dynamic Rendering, linking to the Vulkan 1.2 feature
-  // chain
+  // 2. Request Vulkan 1.3 Dynamic Rendering, linking to the Vulkan 1.2
+  // feature chain
   VkPhysicalDeviceVulkan13Features features13{};
   features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
   features13.dynamicRendering = VK_TRUE;

@@ -62,6 +62,13 @@ struct ElementLifecycleState {
 struct UIState {
   std::unique_ptr<avk::VulkanContext> context;
   std::unique_ptr<avk::Renderer> renderer;
+  bool injectDevTools = true;
+
+  // Frame Data & Performance Metrics
+  float frameTimeMs = 0.0f;
+  float fps = 0.0f;
+  uint32_t drawCalls = 0;
+
   void *clayArenaMemory = nullptr;
   std::vector<window::WindowSession> sessions;
   std::vector<std::unique_ptr<RenderPayload>> framePayloads;
@@ -81,6 +88,8 @@ struct UIState {
   std::vector<std::unique_ptr<avk::Font>> fonts;
   std::unordered_map<uint32_t, InputState> inputStateMap;
   std::unordered_map<uint32_t, ScrollViewState> scrollViewStates;
+  std::string activeDragText = "";
+  uint32_t dragSourceElementId = 0;
 
   uint32_t defaultFontId = 0;
   std::array<uint32_t, 5> defaultIconFontIds;

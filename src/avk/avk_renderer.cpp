@@ -20,13 +20,17 @@ Renderer::Renderer(VulkanContext *context) : m_context(context) {
 
   buildQuadBuffer();
 
-  // Allocate memory for the instanced draw batch.
-  // We map it permanently on creation using VMA flags to allow sequential-write
-  // host-access.
-  VkDeviceSize instanceBufferSize = sizeof(InstanceData) * m_maxInstances;
+  // --------------------------------------------------------------------------
+  // TRIPLE-BUFFERED INSTANCE MEMORY (Eliminates CPU-GPU Write Races)
+  // Allocated in VMA_MEMORY_USAGE_AUTO with Host Sequential Write Bit
+  // (Utilizes PCIe Resizable BAR Device-Local Memory on modern GPUs)
+  // --------------------------------------------------------------------------
+  constexpr uint32_t FRAMES_IN_FLIGHT = 3;
+  VkDeviceSize singleFrameSize = sizeof(InstanceData) * m_maxInstances;
+  VkDeviceSize totalBufferSize = singleFrameSize * FRAMES_IN_FLIGHT;
+
   m_instanceBuffer = m_context->getAllocator()->createBuffer(
-      instanceBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+      totalBufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
       VMA_ALLOCATION_CREATE_MAPPED_BIT |
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
 }
@@ -44,6 +48,7 @@ Renderer &Renderer::operator=(Renderer &&other) noexcept {
     m_quadVertexBuffer = std::move(other.m_quadVertexBuffer);
     m_instanceBuffer = std::move(other.m_instanceBuffer);
     m_drawQueue = std::move(other.m_drawQueue);
+    m_frameIndex = other.m_frameIndex;
 
     other.m_context = nullptr;
   }
@@ -73,23 +78,28 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
     return;
   }
 
-  // 1. Copy instance list to permanently mapped GPU memory via fast memcpy
-  std::memcpy(m_instanceBuffer.getMappedData(), m_drawQueue.data(),
+  // 1. Copy instance list to mapped buffer
+  constexpr uint32_t FRAMES_IN_FLIGHT = 3;
+  uint32_t bufferFrameIndex = m_frameIndex % FRAMES_IN_FLIGHT;
+  VkDeviceSize singleFrameByteSize = sizeof(InstanceData) * m_maxInstances;
+  VkDeviceSize currentFrameOffset = bufferFrameIndex * singleFrameByteSize;
+
+  uint8_t *mappedPtr = static_cast<uint8_t *>(m_instanceBuffer.getMappedData());
+  std::memcpy(mappedPtr + currentFrameOffset, m_drawQueue.data(),
               m_drawQueue.size() * sizeof(InstanceData));
 
-  // 2. Fetch the format-specific graphics pipeline
+  m_frameIndex++;
+
   VkPipeline pipeline = m_pipelineCache->getOrCreatePipeline(targetFormat);
   if (pipeline == VK_NULL_HANDLE) {
     return;
   }
 
-  // 3. Configure dynamic rendering attachment
+  // Configure dynamic rendering attachment
   VkRenderingAttachmentInfo colorAttachmentInfo{};
   colorAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
   colorAttachmentInfo.imageView = targetView;
   colorAttachmentInfo.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-  // We use LOAD to draw the UI transparently on top of existing background
-  // renderings
   colorAttachmentInfo.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
   colorAttachmentInfo.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -101,73 +111,81 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
   renderingInfo.colorAttachmentCount = 1;
   renderingInfo.pColorAttachments = &colorAttachmentInfo;
 
-  // begin dynamic rendering pass
+  // =========================================================================
+  // BEGIN Dynamic Rendering Pass
+  // =========================================================================
   vkCmdBeginRendering(cmd, &renderingInfo);
 
-  // bind Shader pipeline
+#ifdef TRACY_ENABLE
+  if (m_context && m_context->getTracyVkCtx()) {
+    TracyVkZone(m_context->getTracyVkCtx(), cmd, "Vulkan_UI_Render_Pass");
+  }
+#endif
+
+  // Bind Pipeline & Bindless Descriptor Set
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-  // for textures
   VkDescriptorSet bindlessSet =
       m_context->getTextureManager()->getDescriptorSet();
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           m_pipelineCache->getPipelineLayout(), 0, 1,
                           &bindlessSet, 0, nullptr);
 
-  // Set dynamic viewport
-  VkViewport viewport{};
-  viewport.x = 0.0f;
-  viewport.y = 0.0f;
-  viewport.width = static_cast<float>(extent.width);
-  viewport.height = static_cast<float>(extent.height);
-  viewport.minDepth = 0.0f;
-  viewport.maxDepth = 1.0f;
+  // Viewport & Scissor
+  VkViewport viewport{0.0f,
+                      0.0f,
+                      static_cast<float>(extent.width),
+                      static_cast<float>(extent.height),
+                      0.0f,
+                      1.0f};
   vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-  // Set dynamic scissor
-  VkRect2D scissor{};
-  scissor.offset = {0, 0};
-  scissor.extent = extent;
+  VkRect2D scissor{{0, 0}, extent};
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  // Push screen resolution constants to Vertex Shader
+  // Push Constants
   float screenSize[2] = {static_cast<float>(extent.width),
                          static_cast<float>(extent.height)};
   vkCmdPushConstants(cmd, m_pipelineCache->getPipelineLayout(),
                      VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(screenSize),
                      screenSize);
 
-  // Bind Quad Vertex Buffer (Binding 0)
+  // Bind Buffers
   VkBuffer vertexBuffers[] = {m_quadVertexBuffer.getBuffer()};
   VkDeviceSize offsets[] = {0};
   vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
 
-  // Bind Instance Buffer (Binding 1)
   VkBuffer instanceBuffers[] = {m_instanceBuffer.getBuffer()};
-  VkDeviceSize instanceOffsets[] = {0};
+  VkDeviceSize instanceOffsets[] = {currentFrameOffset};
   vkCmdBindVertexBuffers(cmd, 1, 1, instanceBuffers, instanceOffsets);
 
-  // Record Draw command
+  // Draw Call
   vkCmdDraw(cmd, 6, static_cast<uint32_t>(m_drawQueue.size()), 0, 0);
 
-  // End dynamic rendering pass
+  // =========================================================================
+  // END Dynamic Rendering Pass
+  // =========================================================================
   vkCmdEndRendering(cmd);
+
+#ifdef TRACY_ENABLE
+  // MUST be called OUTSIDE of vkCmdBeginRendering / vkCmdEndRendering pass!
+  if (m_context && m_context->getTracyVkCtx()) {
+    TracyVkCollect(m_context->getTracyVkCtx(), cmd);
+  }
+#endif
 }
 
 void Renderer::buildQuadBuffer() {
-  // 2D Unit Quad representing a simple 6-vertex canvas
   const std::vector<Vertex> quadVertices = {
-      {{0.0f, 0.0f}, {0.0f, 0.0f}}, // Tri 1
-      {{1.0f, 0.0f}, {1.0f, 0.0f}}, {{1.0f, 1.0f}, {1.0f, 1.0f}},
+      {{0.0f, 0.0f}, {0.0f, 0.0f}}, {{1.0f, 0.0f}, {1.0f, 0.0f}},
+      {{1.0f, 1.0f}, {1.0f, 1.0f}},
 
-      {{0.0f, 0.0f}, {0.0f, 0.0f}}, // Tri 2
-      {{1.0f, 1.0f}, {1.0f, 1.0f}}, {{0.0f, 1.0f}, {0.0f, 1.0f}}};
+      {{0.0f, 0.0f}, {0.0f, 0.0f}}, {{1.0f, 1.0f}, {1.0f, 1.0f}},
+      {{0.0f, 1.0f}, {0.0f, 1.0f}}};
 
   VkDeviceSize bufferSize = sizeof(Vertex) * quadVertices.size();
 
-  // Allocate host-visible coherent buffer using VMA wrapper
   m_quadVertexBuffer = m_context->getAllocator()->createBuffer(
-      bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-      VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+      bufferSize, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
       VMA_ALLOCATION_CREATE_MAPPED_BIT |
           VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
 

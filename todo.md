@@ -19,5 +19,5 @@
 
   ```
 ```
-- [] text rendering: line height, word wrap anywhere, text align all dont work
+- [x] text rendering: line height, word wrap anywhere, text align all dont work
 - [] text rendering: multi language support is unverified

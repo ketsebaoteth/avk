@@ -66,7 +66,7 @@ Interaction Switch(Modifier &&modifier, bool &checked) {
                              .relative();
 
   Interaction result = Div(std::move(switchStyle), [&]() {
-    Div(DefaultModifier()
+    Div(Modifier()
             .absolute()
             .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
             .offset(animatedX, pad)

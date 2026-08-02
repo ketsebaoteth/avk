@@ -1,14 +1,11 @@
 #pragma once
 
-#include "avk/utils/ui/layout.h"
 #include "ui/components.h"
 #include "ui/generated/lucideIcons.generated.h"
-#include "ui/motion/AtomicMotion.h"
 #include "ui/motion/Curves.h"
 #include "ui/motion/MotionTypes.h"
 #include "ui/style/modifier.h"
 #include "ui/utils/color.h"
-#include "ui/utils/extraComponents.h"
 #include <cmath>
 #include <functional>
 #include <string>
@@ -24,11 +21,11 @@ inline void drawEqualizerWaveShowcase() {
   using namespace atomicComponents;
   using atomic::motion::MotionHandle;
 
-  Column(DefaultModifier().gap(24).widthGrow(), []() {
-    Text("Equalizer Wave", DefaultModifier().fontSize(18).fontWeight(700));
-    Text("Spring wave animation test.", DefaultModifier().fontSize(13));
+  Column(Modifier().gap(24).widthGrow(), []() {
+    Text("Equalizer Wave", Modifier().fontSize(18).fontWeight(700));
+    Text("Spring wave animation test.", Modifier().fontSize(13));
 
-    Div(DefaultModifier()
+    Div(Modifier()
             .widthGrow()
             .padding(24)
             .border(Colors::gray[200], 1.0f)
@@ -40,42 +37,40 @@ inline void drawEqualizerWaveShowcase() {
           uint32_t baseId = hashLabel("EqualizerShowcase");
 
           static bool waveTriggered = false;
-          if (Button(DefaultModifier().id("TriggerWaveBtn"), [&]() {
-                Text(waveTriggered ? "Reset" : "Play",
-                     DefaultModifier().fontSize(12));
+          if (Button(Modifier().id("TriggerWaveBtn"), [&]() {
+                Text(waveTriggered ? "Reset" : "Play", Modifier().fontSize(12));
               }).clicked) {
             waveTriggered = !waveTriggered;
           }
 
-          Row(DefaultModifier().gap(12).margin(10, 0).widthGrow().center(),
-              [&]() {
-                constexpr int numBars = 14;
-                for (int i = 0; i < numBars; ++i) {
-                  uint32_t barId = baseId + 0x1000 + i;
+          Row(Modifier().gap(12).margin(10, 0).widthGrow().center(), [&]() {
+            constexpr int numBars = 14;
+            for (int i = 0; i < numBars; ++i) {
+              uint32_t barId = baseId + 0x1000 + i;
 
-                  float phase = static_cast<float>(i) * 0.40f;
-                  float targetH =
-                      waveTriggered ? (45.0f + std::sin(phase) * 50.0f + 35.0f)
-                                    : 14.0f;
+              float phase = static_cast<float>(i) * 0.40f;
+              float targetH = waveTriggered
+                                  ? (45.0f + std::sin(phase) * 50.0f + 35.0f)
+                                  : 14.0f;
 
-                  motion::SpringConfig waveSpring{.mass = 1.0f + i * 0.08f,
-                                                  .stiffness = 150.0f,
-                                                  .damping = 12.0f};
+              motion::SpringConfig waveSpring{.mass = 1.0f + i * 0.08f,
+                                              .stiffness = 150.0f,
+                                              .damping = 12.0f};
 
-                  float barHeight = uiState->motionManager.animateSpring<float>(
-                      MotionHandle{barId}, targetH, waveSpring);
+              float barHeight = uiState->motionManager.animateSpring<float>(
+                  MotionHandle{barId}, targetH, waveSpring);
 
-                  glm::vec4 barColor = glm::mix(
-                      glm::vec4(0.31f, 0.27f, 0.90f, 1.0f),
-                      glm::vec4(0.14f, 0.58f, 0.45f, 1.0f),
-                      static_cast<float>(i) / static_cast<float>(numBars - 1));
+              glm::vec4 barColor = glm::mix(
+                  glm::vec4(0.31f, 0.27f, 0.90f, 1.0f),
+                  glm::vec4(0.14f, 0.58f, 0.45f, 1.0f),
+                  static_cast<float>(i) / static_cast<float>(numBars - 1));
 
-                  Div(DefaultModifier()
-                          .size(14, barHeight)
-                          .background(barColor)
-                          .rounded(6.0f));
-                }
-              });
+              Div(Modifier()
+                      .size(14, barHeight)
+                      .background(barColor)
+                      .rounded(6.0f));
+            }
+          });
         });
   });
 }
@@ -88,12 +83,11 @@ inline void drawCardMorphShowcase() {
   using namespace atomicComponents;
   using atomic::motion::MotionHandle;
 
-  Column(DefaultModifier().gap(24).widthGrow(), []() {
-    Text("Card Morph", DefaultModifier().fontSize(18).fontWeight(700));
-    Text("Interactive card hover and press states.",
-         DefaultModifier().fontSize(13));
+  Column(Modifier().gap(24).widthGrow(), []() {
+    Text("Card Morph", Modifier().fontSize(18).fontWeight(700));
+    Text("Interactive card hover and press states.", Modifier().fontSize(13));
 
-    Div(DefaultModifier()
+    Div(Modifier()
             .widthGrow()
             .padding(24)
             .border(Colors::gray[200], 1.0f)
@@ -103,7 +97,7 @@ inline void drawCardMorphShowcase() {
         [&]() {
           auto *uiState = getUiState();
 
-          Row(DefaultModifier().gap(16).widthGrow(), [&]() {
+          Row(Modifier().gap(16).widthGrow(), [&]() {
             constexpr int cardCount = 3;
             const char *cardTitles[cardCount] = {"Card 1", "Card 2", "Card 3"};
             const char *cardSubtitles[cardCount] = {"Subtitle 1", "Subtitle 2",
@@ -135,7 +129,7 @@ inline void drawCardMorphShowcase() {
                   MotionHandle{cid + 0x400}, targetBg, 0.2f,
                   motion::AnimationCurve::EaseOut());
 
-              Div(DefaultModifier()
+              Div(Modifier()
                       .id(label)
                       .widthGrow()
                       .scale(scale)
@@ -146,23 +140,20 @@ inline void drawCardMorphShowcase() {
                       .column()
                       .gap(8),
                   [&]() {
-                    Row(DefaultModifier().widthGrow().alignY(
-                            AlignmentY::Center),
+                    Row(Modifier().widthGrow().alignY(AlignmentY::Center),
                         [&]() {
-                          Div(DefaultModifier()
-                                  .size(8, 8)
-                                  .rounded(4.0f)
-                                  .background(cardAccents[i]));
-                          Div(DefaultModifier().widthGrow());
+                          Div(Modifier().size(8, 8).rounded(4.0f).background(
+                              cardAccents[i]));
+                          Div(Modifier().widthGrow());
                           Icon(LucideIcon::IdCard,
-                               DefaultModifier().size(14, 14).color(
+                               Modifier().size(14, 14).color(
                                    hovered ? cardAccents[i]
                                            : Colors::gray[400]));
                         });
 
                     Text(cardTitles[i],
-                         DefaultModifier().fontSize(13).fontWeight(600));
-                    Text(cardSubtitles[i], DefaultModifier().fontSize(11));
+                         Modifier().fontSize(13).fontWeight(600));
+                    Text(cardSubtitles[i], Modifier().fontSize(11));
                   });
             }
           });
@@ -179,12 +170,12 @@ inline void drawLaunchpadBurstShowcase() {
   using namespace atomicComponents;
   using atomic::motion::MotionHandle;
 
-  Column(DefaultModifier().gap(24).widthGrow(), []() {
-    Text("Launchpad Burst", DefaultModifier().fontSize(18).fontWeight(700));
+  Column(Modifier().gap(24).widthGrow(), []() {
+    Text("Launchpad Burst", Modifier().fontSize(18).fontWeight(700));
     Text("Staggered square scale and rainbow background cascade.",
-         DefaultModifier().fontSize(13));
+         Modifier().fontSize(13));
 
-    Div(DefaultModifier()
+    Div(Modifier()
             .widthGrow()
             .padding(24)
             .border(Colors::gray[200], 1.0f)
@@ -199,8 +190,8 @@ inline void drawLaunchpadBurstShowcase() {
           static std::vector<float> nodeColorWeights = {0.0f, 0.0f, 0.0f,
                                                         0.0f, 0.0f, 0.0f};
 
-          if (Button(DefaultModifier().id("LaunchpadBtn"), [&]() {
-                Text("Trigger Burst", DefaultModifier().fontSize(12));
+          if (Button(Modifier().id("LaunchpadBtn"), [&]() {
+                Text("Trigger Burst", Modifier().fontSize(12));
               }).clicked) {
 
             for (size_t i = 0; i < nodeScales.size(); ++i) {
@@ -229,35 +220,34 @@ inline void drawLaunchpadBurstShowcase() {
             tl.play();
           }
 
-          Row(DefaultModifier().gap(12).margin(10, 0).widthGrow().center(),
-              [&]() {
-                glm::vec4 rainbowPalette[6] = {
-                    "#ef4444"_hex, // Red
-                    "#f97316"_hex, // Orange
-                    "#eab308"_hex, // Yellow
-                    "#10b981"_hex, // Green
-                    "#3b82f6"_hex, // Blue
-                    "#8b5cf6"_hex  // Purple
-                };
+          Row(Modifier().gap(12).margin(10, 0).widthGrow().center(), [&]() {
+            glm::vec4 rainbowPalette[6] = {
+                "#ef4444"_hex, // Red
+                "#f97316"_hex, // Orange
+                "#eab308"_hex, // Yellow
+                "#10b981"_hex, // Green
+                "#3b82f6"_hex, // Blue
+                "#8b5cf6"_hex  // Purple
+            };
 
-                for (size_t i = 0; i < nodeScales.size(); ++i) {
-                  glm::vec4 boxBg =
-                      glm::mix(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
-                               rainbowPalette[i], nodeColorWeights[i]);
+            for (size_t i = 0; i < nodeScales.size(); ++i) {
+              glm::vec4 boxBg =
+                  glm::mix(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), rainbowPalette[i],
+                           nodeColorWeights[i]);
 
-                  Div(DefaultModifier()
-                          .size(68, 68)
-                          .scale(nodeScales[i])
-                          .background(boxBg)
-                          .border(Colors::gray[200], 1.2f)
-                          .rounded(12.0f)
-                          .center(),
-                      [&]() {
-                        Text(std::to_string(i + 1),
-                             DefaultModifier().fontSize(13).fontWeight(700));
-                      });
-                }
-              });
+              Div(Modifier()
+                      .size(68, 68)
+                      .scale(nodeScales[i])
+                      .background(boxBg)
+                      .border(Colors::gray[200], 1.2f)
+                      .rounded(12.0f)
+                      .center(),
+                  [&]() {
+                    Text(std::to_string(i + 1),
+                         Modifier().fontSize(13).fontWeight(700));
+                  });
+            }
+          });
         });
   });
 }
@@ -274,13 +264,13 @@ inline void drawDigitalLcdPanel(const std::string &headerLabel,
   const glm::vec4 panelBg = "#46271a"_hex;     // Dark cocoa LCD bevel
   const glm::vec4 panelBorder = "#5a3121"_hex; // Subtle panel edge stroke
 
-  Column(DefaultModifier().gap(12), [&]() {
+  Column(Modifier().gap(12), [&]() {
     // Top Muted Header Label
     Text(headerLabel,
-         DefaultModifier().fontSize(16).fontWeight(600).textColor(labelColor));
+         Modifier().fontSize(16).fontWeight(600).textColor(labelColor));
 
     // Digital LCD Display Bevel Box
-    Div(DefaultModifier()
+    Div(Modifier()
             .width(260)
             .height(85)
             .background(panelBg)
@@ -292,8 +282,7 @@ inline void drawDigitalLcdPanel(const std::string &headerLabel,
             .alignX(AlignmentX::Right),
         [&]() {
           Text(digitReadout,
-               DefaultModifier().fontSize(34).fontWeight(700).textColor(
-                   digitColor));
+               Modifier().fontSize(34).fontWeight(700).textColor(digitColor));
         });
   });
 }
@@ -309,7 +298,7 @@ inline void drawRetroDigitalTimerShowcase() {
 
   const glm::vec4 canvasBg = "#382015"_hex;
 
-  Div(DefaultModifier()
+  Div(Modifier()
           .widthGrow()
           .padding(40, 48)
           .background(canvasBg)
@@ -322,16 +311,13 @@ inline void drawRetroDigitalTimerShowcase() {
         static MotionHandle timerHandle = MotionHandle::Invalid();
 
         // Interactive Start / Pause / Reset Buttons
-        Row(DefaultModifier().widthGrow().center(), [&]() {
-          if (Button(DefaultModifier()
-                         .id("ToggleLcdBtn")
-                         .background("#5a3121"_hex),
+        Row(Modifier().widthGrow().center(), [&]() {
+          if (Button(Modifier().id("ToggleLcdBtn").background("#5a3121"_hex),
                      [&]() {
-                       Text(
-                           timerHandle.isValid() ? "Pause / Resume Timer"
-                                                 : "Start Digital Timer",
-                           DefaultModifier().fontSize(12).fontWeight(600).color(
-                               "#ff832b"_hex));
+                       Text(timerHandle.isValid() ? "Pause / Resume Timer"
+                                                  : "Start Digital Timer",
+                            Modifier().fontSize(12).fontWeight(600).color(
+                                "#ff832b"_hex));
                      })
                   .clicked) {
 
@@ -354,13 +340,12 @@ inline void drawRetroDigitalTimerShowcase() {
             }
           }
 
-          if (Button(
-                  DefaultModifier().id("ResetLcdBtn").background("#46271a"_hex),
-                  [&]() {
-                    Text("Reset Readouts",
-                         DefaultModifier().fontSize(12).fontWeight(600).color(
-                             "#d87236"_hex));
-                  })
+          if (Button(Modifier().id("ResetLcdBtn").background("#46271a"_hex),
+                     [&]() {
+                       Text("Reset Readouts",
+                            Modifier().fontSize(12).fontWeight(600).color(
+                                "#d87236"_hex));
+                     })
                   .clicked) {
             uiState->motionManager.clearTimers();
             timerHandle = MotionHandle::Invalid();
@@ -379,7 +364,7 @@ inline void drawRetroDigitalTimerShowcase() {
         std::string callbackStr = std::to_string(loops);
 
         // Render side-by-side LCD panels
-        Row(DefaultModifier().gap(24).center(), [&]() {
+        Row(Modifier().gap(24).center(), [&]() {
           drawDigitalLcdPanel("current time", timeStr);
           drawDigitalLcdPanel("callback fired", callbackStr);
         });
@@ -393,11 +378,9 @@ inline void drawHeroAnimationShowcase() {
   using namespace atomic;
   using namespace atomicComponents;
 
-  Column(DefaultModifier().gap(40).widthGrow(), []() {
-    Text("Atomic Motion Showcases",
-         DefaultModifier().fontSize(24).fontWeight(700));
-    Text("Individual interactive animation modules.",
-         DefaultModifier().fontSize(14));
+  Column(Modifier().gap(40).widthGrow(), []() {
+    Text("Atomic Motion Showcases", Modifier().fontSize(24).fontWeight(700));
+    Text("Individual interactive animation modules.", Modifier().fontSize(14));
 
     drawEqualizerWaveShowcase();
     drawCardMorphShowcase();

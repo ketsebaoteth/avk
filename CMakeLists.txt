@@ -53,6 +53,25 @@ add_custom_target(avk_compiled_shaders DEPENDS ${SPV_OUTPUTS})
 # =============================================================================
 include(FetchContent)
 
+# Tracy Profiler
+option(TRACY_ENABLE "Enable Tracy Profiler" ON)
+set(TRACY_ENABLE ON CACHE BOOL "Enable Tracy Profiler" FORCE)
+set(TRACY_ON_DEMAND OFF CACHE BOOL "Disable on-demand" FORCE)
+
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/tracy/CMakeLists.txt")
+  add_subdirectory(thirdparty/tracy)
+else()
+  message(STATUS "thirdparty/tracy not found. Fetching via FetchContent...")
+  FetchContent_Declare(
+      tracy
+      GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+      GIT_TAG master
+      GIT_SHALLOW FALSE
+    )
+  FetchContent_MakeAvailable(tracy)
+endif()
+
 # GLM
 FetchContent_Declare(
     glm
@@ -117,8 +136,8 @@ set(FT_DISABLE_PNG OFF CACHE BOOL "" FORCE)
 set(FT_DISABLE_HARFBUZZ OFF CACHE BOOL "" FORCE)
 add_subdirectory(thirdparty/freetype)
 
-# msdfgen (FIX: Disable Vcpkg check and enable msdfgen-ext!)
-set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE) # <--- FIX: Turn off Vcpkg in msdfgen!
+# msdfgen (Turn off Vcpkg in msdfgen)
+set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_CORE_ONLY OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_USE_SKIA OFF CACHE BOOL "" FORCE)
@@ -221,7 +240,9 @@ function(atomic_add_font)
   set(TARGET_NAME "gen_font_${FONT_NAME}")
   add_custom_target(${TARGET_NAME} DEPENDS ${PNG_OUTPUT} ${CSV_OUTPUT})
   add_dependencies(avk_engine ${TARGET_NAME})
-endfunction() # =============================================================================
+endfunction()
+
+# =============================================================================
 # 4. ENGINE TARGET
 # =============================================================================
 file(GLOB_RECURSE AVK_SOURCES CONFIGURE_DEPENDS
@@ -235,7 +256,11 @@ add_dependencies(avk_engine avk_compiled_shaders)
 if(MSVC)
   target_compile_options(avk_engine PRIVATE /W4 /WX)
 else()
-  target_compile_options(avk_engine PRIVATE -Wall -Wextra -Werror -Wno-missing-field-initializers)
+  target_compile_options(avk_engine PRIVATE
+      -Wall -Wextra -Werror
+      -Wno-missing-field-initializers
+      -Wno-error=maybe-uninitialized
+      -Wno-maybe-uninitialized)
 endif()
 
 target_include_directories(avk_engine PUBLIC
@@ -252,6 +277,11 @@ target_include_directories(avk_engine PUBLIC
 target_include_directories(avk_engine SYSTEM PUBLIC
     thirdparty/vma_allocator
     thirdparty/clay
+   ${tracy_SOURCE_DIR}/public
+)
+
+target_compile_definitions(avk_engine PUBLIC
+    TRACY_ENABLE
 )
 
 target_link_libraries(avk_engine PUBLIC
@@ -264,6 +294,7 @@ target_link_libraries(avk_engine PUBLIC
     msdfgen-core
     msdfgen-ext
     msdf-atlas-gen
+    Tracy::TracyClient
 )
 
 # Path definitions
@@ -307,6 +338,10 @@ else()
   target_compile_options(avk_example PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 endif()
 
+target_compile_definitions(avk_example PRIVATE
+    TRACY_ENABLE
+)
+
 if(WIN32)
   target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_WIN32 UNICODE _UNICODE)
 elseif(UNIX AND NOT APPLE)
@@ -318,6 +353,6 @@ add_custom_command(
     TARGET avk_example POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_CURRENT_SOURCE_DIR}/assets"
-            "$/assets"
+            "${CMAKE_CURRENT_BINARY_DIR}/assets"
     COMMENT "Syncing assets folder to target build directory..."
 )

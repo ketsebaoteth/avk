@@ -1,7 +1,6 @@
 #pragma once
 
 #include "avk_bidi.h"
-#include <algorithm>
 #include <cstdint>
 
 #include <glm/glm.hpp>
@@ -90,7 +89,9 @@ public:
       bool isSpace;
     };
 
-    std::vector<RawGlyph> rawGlyphs;
+    thread_local std::vector<RawGlyph> rawGlyphs;
+    rawGlyphs.clear();
+    rawGlyphs.reserve(utf8Text.size());
 
     for (const auto &run : bidiRuns) {
       hb_buffer_clear_contents(hbBuffer);
@@ -139,6 +140,7 @@ public:
     };
 
     std::vector<Line> lines;
+    lines.reserve(16);
     lines.push_back({});
 
     float currentWidth = 0.0f;
@@ -193,13 +195,13 @@ public:
       currentWidth += g.xAdvance;
     }
 
+    resultGlyphs.reserve(rawGlyphs.size());
     float cursorY = startY;
 
     for (size_t lIdx = 0; lIdx < lines.size(); ++lIdx) {
       auto &line = lines[lIdx];
       float lineX = startX;
 
-      // Clean CSS Left, Center, and Right line alignment
       if (options.maxWidth > 0.0f && options.maxWidth > line.width) {
         float remainingSpace = options.maxWidth - line.width;
 

@@ -116,10 +116,17 @@ bool VulkanSwapchain::build(uint32_t width, uint32_t height) {
     if (availableFormat.format == VK_FORMAT_B8G8R8A8_UNORM &&
         availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
       selectedFormat = availableFormat;
+      break;
     }
   }
   m_format = selectedFormat.format;
 
+  // --------------------------------------------------------------------------
+  // Present Mode Selection (ImGui-Style Fallback Order)
+  // 1st Preference: MAILBOX (Triple-buffered, uncapped)
+  // 2nd Preference: IMMEDIATE (Uncapped, zero VSync blocking on Wayland)
+  // Fallback: FIFO (VSync ON)
+  // --------------------------------------------------------------------------
   uint32_t presentModeCount = 0;
   vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, m_surface,
                                             &presentModeCount, nullptr);
@@ -128,11 +135,38 @@ bool VulkanSwapchain::build(uint32_t width, uint32_t height) {
       physicalDevice, m_surface, &presentModeCount, presentModes.data());
 
   VkPresentModeKHR selectedPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+  bool hasMailbox = false;
+  bool hasImmediate = false;
+
   for (const auto &mode : presentModes) {
     if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
-      selectedPresentMode = mode;
-      break;
+      hasMailbox = true;
+    } else if (mode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+      hasImmediate = true;
     }
+  }
+
+  if (hasMailbox) {
+    selectedPresentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+  } else if (hasImmediate) {
+    selectedPresentMode =
+        VK_PRESENT_MODE_IMMEDIATE_KHR; // <--- ImGui's Wayland Fallback!
+  }
+
+  // --------------------------------------------------------------------------
+  // Dynamic Composite Alpha Selection
+  // --------------------------------------------------------------------------
+  VkCompositeAlphaFlagBitsKHR compositeAlpha =
+      VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  if (capabilities.supportedCompositeAlpha &
+      VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) {
+    compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  } else if (capabilities.supportedCompositeAlpha &
+             VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR) {
+    compositeAlpha = VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
+  } else if (capabilities.supportedCompositeAlpha &
+             VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR) {
+    compositeAlpha = VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
   }
 
   m_extent.width = std::clamp(width, capabilities.minImageExtent.width,
@@ -169,7 +203,7 @@ bool VulkanSwapchain::build(uint32_t width, uint32_t height) {
   }
 
   createInfo.preTransform = capabilities.currentTransform;
-  createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+  createInfo.compositeAlpha = compositeAlpha;
   createInfo.presentMode = selectedPresentMode;
   createInfo.clipped = VK_TRUE;
   createInfo.oldSwapchain = m_swapchain;

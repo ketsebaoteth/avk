@@ -33,16 +33,16 @@ inline const AnimationCurve SmoothSwift =
 /**
  * @brief Universal layout container element (Flexbox box model).
  */
-Interaction Div(Modifier &&modifier = DefaultModifier(),
+Interaction Div(Modifier &&modifier = Modifier(),
                 const std::function<void()> &content = nullptr);
 inline Interaction Div(const std::function<void()> &content = nullptr) {
-  return Div(DefaultModifier(), content);
+  return Div(Modifier(), content);
 };
 
 /**
  * @brief Convenience inline wrapper for Row direction Div containers.
  */
-inline Interaction Row(Modifier &&modifier = DefaultModifier(),
+inline Interaction Row(Modifier &&modifier = Modifier(),
                        const std::function<void()> &content = nullptr) {
   return Div(std::move(modifier).row(), content);
 }
@@ -50,7 +50,7 @@ inline Interaction Row(Modifier &&modifier = DefaultModifier(),
 /**
  * @brief Convenience inline wrapper for Column direction Div containers.
  */
-inline Interaction Column(Modifier &&modifier = DefaultModifier(),
+inline Interaction Column(Modifier &&modifier = Modifier(),
                           const std::function<void()> &content = nullptr) {
   return Div(std::move(modifier).column(), content);
 }
@@ -65,20 +65,18 @@ Interaction Image(Modifier &&modifier, uint32_t textureIndex,
  * @brief Renders a styled, layout-integrated text component.
  */
 Interaction Text(const std::string &text, uint32_t fontId,
-                 Modifier &&modifier = DefaultModifier());
+                 Modifier &&modifier = Modifier());
 
 /**
  * @brief Overload for Text using default or inherited font ID.
  */
-Interaction Text(const std::string &text,
-                 Modifier &&modifier = DefaultModifier());
+Interaction Text(const std::string &text, Modifier &&modifier = Modifier());
 
 /**
  * @brief Internal overload for Text with explicit element ID.
  */
 Interaction Text(const std::string &text, uint32_t fontId,
-                 Clay_ElementId textId,
-                 Modifier &&modifier = DefaultModifier());
+                 Clay_ElementId textId, Modifier &&modifier = Modifier());
 
 /**
  * @brief Interactive composable Button component.
@@ -120,6 +118,7 @@ struct TextConfig {
       nullptr};         // Custom SVG/Glyph rendering hook
   size_t maxLength = 0; // 0 = Unlimited
   bool isPassword = false;
+  float customCharAdvance = 0.0f;
 };
 
 /**
@@ -198,7 +197,7 @@ inline void ScrollView(Modifier &&modifier,
  * @brief Scrollable viewport container with default modifier and config.
  */
 inline void ScrollView(std::function<void()> contentCallback) {
-  ScrollView(DefaultModifier(), ScrollViewConfig{}, std::move(contentCallback));
+  ScrollView(Modifier(), ScrollViewConfig{}, std::move(contentCallback));
 }
 
 /**
@@ -209,7 +208,7 @@ Interaction Switch(Modifier &&modifier, bool &checked);
 /**
  * @brief Vector icon rendering component using Lucide glyph codepoints.
  */
-Interaction Icon(LucideIcon icon, Modifier &&modifier = DefaultModifier());
+Interaction Icon(LucideIcon icon, Modifier &&modifier = Modifier());
 
 /**
  * @brief Animated checkbox component with vector checkmark.
@@ -272,7 +271,7 @@ inline bool TabButton(const std::string &tabId, const std::string &label,
       isActive ? activeBg : (isBtnHovered ? hoverBg : inactiveBg);
 
   // Build tab modifier with smooth 0.15s ease-out transitions
-  Modifier style = DefaultModifier()
+  Modifier style = Modifier()
                        .id(tabId)
                        .background(targetBg)
                        .color(isActive ? activeTextColor : inactiveTextColor)

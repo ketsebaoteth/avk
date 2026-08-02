@@ -190,9 +190,18 @@ bool validateChar(uint32_t codepoint, const std::string &text, uint32_t pos,
   }
 }
 
+float getSubstringAdvance(const std::string &str, avk::Font *font,
+                          float physicalFontSize, float customGap) {
+  if (str.empty() || !font)
+    return 0.0f;
+  float baseW = font->measureText(str, physicalFontSize).x;
+  size_t count = getCodepointCount(str);
+  return baseW + (static_cast<float>(count) * customGap);
+}
+
 uint32_t findWhereCursorLanded(const std::string &displayString,
                                avk::Font *font, float relativeMouseX,
-                               float physicalFontSize) {
+                               float physicalFontSize, float customGap) {
   if (displayString.empty() || !font || relativeMouseX <= 0.0f) {
     return 0;
   }
@@ -201,8 +210,8 @@ uint32_t findWhereCursorLanded(const std::string &displayString,
        i = getNextCharIndex(displayString, i)) {
     uint32_t nextI = getNextCharIndex(displayString, i);
 
-    float currentWidth =
-        font->measureText(displayString.substr(0, nextI), physicalFontSize).x;
+    float currentWidth = getSubstringAdvance(displayString.substr(0, nextI),
+                                             font, physicalFontSize, customGap);
 
     float midPoint = (prevWidth + currentWidth) * 0.5f;
     if (relativeMouseX < midPoint) {
@@ -230,6 +239,10 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   Clay_ElementId textInputId = utils::layout::getNextId(labelId.c_str());
   uint32_t elementId = textInputId.id;
 
+  std::string selectBoxId = labelId + "_select";
+  std::string caretLineId = labelId + "_caret";
+  std::string dropCaretId = labelId + "_dropCaret";
+
   bool isDisabled = rawStyle.disabled.value_or(false) || inherited.disabled;
   bool isFocused = (!isDisabled && uiState->focusedElementId == elementId);
   bool wasHovered = !isDisabled && isHovered(elementId);
@@ -247,8 +260,22 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   glm::vec4 activeBorderWidth = isFocused ? glm::vec4(1.5f) : baseStrokeWidth;
 
+  constexpr float BASE_UI_SCALE = 2.0f;
+  float monitorDpi =
+      (getVeraApp() && getVeraApp()->getPrimaryMonitor().dpiScale > 0.0f)
+          ? getVeraApp()->getPrimaryMonitor().dpiScale
+          : 1.0f;
+  float effectiveScale = monitorDpi * BASE_UI_SCALE;
+
+  float customGapPhysical = config.customCharAdvance * effectiveScale;
+
+  // Set default height to 42px to prevent container collapse when using
+  // absolute custom renderers
+  float defaultContainerHeight = rawStyle.height.value_or(42.0f);
+
   Modifier containerStyle = std::move(modifier)
                                 .id(labelId)
+                                .height(defaultContainerHeight) // Lock height
                                 .background(computedBg)
                                 .border(baseStrokeColor, activeBorderWidth)
                                 .disabled(isDisabled)
@@ -271,14 +298,6 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
   const auto &finalStyle = containerStyle.getStyle();
 
-  // Compute effective physical DPI scale matching atomic::Text
-  constexpr float BASE_UI_SCALE = 2.0f;
-  float monitorDpi =
-      (getVeraApp() && getVeraApp()->getPrimaryMonitor().dpiScale > 0.0f)
-          ? getVeraApp()->getPrimaryMonitor().dpiScale
-          : 1.0f;
-  float effectiveScale = monitorDpi * BASE_UI_SCALE;
-
   float logicalFontSize = finalStyle.fontSize.value_or(14.0f);
   float physicalFontSize = logicalFontSize * effectiveScale;
 
@@ -286,6 +305,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   glm::vec4 textColor = finalStyle.textColor.value_or(Colors::black[900]);
 
   uint16_t padL = finalStyle.padLeft.value_or(12);
+  uint16_t padR = finalStyle.padRight.value_or(12);
 
   avk::Font *font = getFont(fontId != 0 ? fontId : getDefaultFontId());
 
@@ -336,12 +356,35 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     }
 
     ComputedLayout bounds = utils::layout::getComputedLayout(textInputId);
+    float visibleWidth =
+        bounds.found ? std::max(0.0f, bounds.width() - padL - padR) : 200.0f;
+
+    // Single-line text input scroll tracking with custom gap support
+    if (font) {
+      float totalTextW = getSubstringAdvance(
+          displayString, font, physicalFontSize, customGapPhysical);
+      float rawCaretX = getSubstringAdvance(
+          displayString.substr(0, inputState.cursorPosition), font,
+          physicalFontSize, customGapPhysical);
+
+      if (rawCaretX - inputState.scrollX > visibleWidth) {
+        inputState.scrollX = rawCaretX - visibleWidth;
+      } else if (rawCaretX - inputState.scrollX < 0.0f) {
+        inputState.scrollX = rawCaretX;
+      }
+
+      float maxScroll = std::max(0.0f, totalTextW - visibleWidth);
+      inputState.scrollX = std::clamp(inputState.scrollX, 0.0f, maxScroll);
+    }
+
     if (bounds.found && !isDisabled) {
-      float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
+      float relativeMouseX =
+          (uiState->pointerPos.x - (bounds.x() + padL)) + inputState.scrollX;
 
       if (isBoxHovered && uiState->pointerPressed) {
-        uint32_t landedPos = findWhereCursorLanded(
-            displayString, font, relativeMouseX, physicalFontSize);
+        uint32_t landedPos =
+            findWhereCursorLanded(displayString, font, relativeMouseX,
+                                  physicalFontSize, customGapPhysical);
 
         uiState->focusedElementId = elementId;
         isFocused = true;
@@ -353,7 +396,8 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
         float clickDist =
             glm::length(uiState->pointerPos - inputState.lastClickPos);
 
-        bool isDoubleClick = (timeSinceLastClick < 0.4f) && (clickDist < 10.0f);
+        bool isDoubleClick =
+            (timeSinceLastClick < 0.48f) && (clickDist < 22.0f);
         inputState.lastClickTime = now;
         inputState.lastClickPos = uiState->pointerPos;
 
@@ -385,7 +429,9 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 
       if (isFocused && uiState->pointerDown) {
         float totalTextWidth =
-            font ? font->measureText(displayString, physicalFontSize).x : 0.0f;
+            font ? getSubstringAdvance(displayString, font, physicalFontSize,
+                                       customGapPhysical)
+                 : 0.0f;
         float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
 
         if (inputState.isPotentialTextDrag) {
@@ -394,12 +440,20 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
           if (mouseDist > 4.0f) {
             inputState.isDraggingSelectedText = true;
             inputState.isPotentialTextDrag = false;
+
+            if (uiState) {
+              uiState->activeDragText = textBuffer.substr(
+                  inputState.selectionStart,
+                  inputState.selectionEnd - inputState.selectionStart);
+              uiState->dragSourceElementId = elementId;
+            }
           }
         }
 
         if (inputState.isDraggingText) {
-          uint32_t currentLandedPos = findWhereCursorLanded(
-              displayString, font, clampedMouseX, physicalFontSize);
+          uint32_t currentLandedPos =
+              findWhereCursorLanded(displayString, font, clampedMouseX,
+                                    physicalFontSize, customGapPhysical);
           inputState.cursorPosition = currentLandedPos;
           inputState.selectionStart =
               std::min(inputState.selectionAnchor, currentLandedPos);
@@ -414,9 +468,12 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
         inputState.isPotentialTextDrag = false;
 
         float relativeMouseX =
-            bounds.found ? (uiState->pointerPos.x - (bounds.x() + padL)) : 0.0f;
-        uint32_t landedPos = findWhereCursorLanded(
-            displayString, font, relativeMouseX, physicalFontSize);
+            bounds.found ? ((uiState->pointerPos.x - (bounds.x() + padL)) +
+                            inputState.scrollX)
+                         : 0.0f;
+        uint32_t landedPos =
+            findWhereCursorLanded(displayString, font, relativeMouseX,
+                                  physicalFontSize, customGapPhysical);
 
         uiState->focusedElementId = elementId;
         isFocused = true;
@@ -427,35 +484,57 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
         resetSelection();
       }
 
-      if (inputState.isDraggingSelectedText && bounds.found) {
-        inputState.isDraggingSelectedText = false;
-        float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
-        float totalTextWidth =
-            font ? font->measureText(displayString, physicalFontSize).x : 0.0f;
-        float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
-        uint32_t dropPos = findWhereCursorLanded(
-            displayString, font, clampedMouseX, physicalFontSize);
+      if (uiState && !uiState->activeDragText.empty() && bounds.found) {
+        bool isOverThisInput =
+            (uiState->pointerPos.x >= bounds.x() &&
+             uiState->pointerPos.x <= bounds.x() + bounds.width() &&
+             uiState->pointerPos.y >= bounds.y() &&
+             uiState->pointerPos.y <= bounds.y() + bounds.height());
 
-        if (dropPos < inputState.selectionStart ||
-            dropPos > inputState.selectionEnd) {
-          std::string slice = textBuffer.substr(inputState.selectionStart,
-                                                inputState.selectionEnd -
-                                                    inputState.selectionStart);
-          textBuffer.erase(inputState.selectionStart, slice.size());
+        if (isOverThisInput) {
+          float relativeMouseX = (uiState->pointerPos.x - (bounds.x() + padL)) +
+                                 inputState.scrollX;
+          float totalTextWidth =
+              font ? getSubstringAdvance(displayString, font, physicalFontSize,
+                                         customGapPhysical)
+                   : 0.0f;
+          float clampedMouseX =
+              std::clamp(relativeMouseX, 0.0f, totalTextWidth);
+          uint32_t dropPos =
+              findWhereCursorLanded(displayString, font, clampedMouseX,
+                                    physicalFontSize, customGapPhysical);
 
-          uint32_t targetIdx =
-              (dropPos > inputState.selectionEnd)
-                  ? (dropPos - static_cast<uint32_t>(slice.size()))
-                  : dropPos;
-          textBuffer.insert(targetIdx, slice);
+          std::string draggedSlice = uiState->activeDragText;
 
-          inputState.cursorPosition =
-              targetIdx + static_cast<uint32_t>(slice.size());
-          inputState.selectionStart = targetIdx;
-          inputState.selectionEnd = inputState.cursorPosition;
+          if (uiState->dragSourceElementId == elementId) {
+            if (dropPos < inputState.selectionStart ||
+                dropPos > inputState.selectionEnd) {
+              textBuffer.erase(inputState.selectionStart, draggedSlice.size());
+              uint32_t targetIdx =
+                  (dropPos > inputState.selectionEnd)
+                      ? (dropPos - static_cast<uint32_t>(draggedSlice.size()))
+                      : dropPos;
+              textBuffer.insert(targetIdx, draggedSlice);
+              inputState.cursorPosition =
+                  targetIdx + static_cast<uint32_t>(draggedSlice.size());
+              inputState.selectionStart = targetIdx;
+              inputState.selectionEnd = inputState.cursorPosition;
+            }
+          } else {
+            textBuffer.insert(dropPos, draggedSlice);
+            inputState.cursorPosition =
+                dropPos + static_cast<uint32_t>(draggedSlice.size());
+            uiState->focusedElementId = elementId;
+            isFocused = true;
+          }
+
+          uiState->activeDragText.clear();
+          uiState->dragSourceElementId = 0;
         }
       }
+
       inputState.isDraggingText = false;
+      inputState.isDraggingSelectedText = false;
     }
 
     if (isFocused) {
@@ -514,7 +593,9 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       if (uiState->backspacePressed) {
         if (!deleteSelection() && inputState.cursorPosition > 0) {
           uint32_t prev =
-              getPreviousCharIndex(textBuffer, inputState.cursorPosition);
+              uiState->ctrlPressed
+                  ? getPreviousWordIndex(textBuffer, inputState.cursorPosition)
+                  : getPreviousCharIndex(textBuffer, inputState.cursorPosition);
           uint32_t len = inputState.cursorPosition - prev;
           textBuffer.erase(prev, len);
           inputState.cursorPosition = prev;
@@ -601,39 +682,11 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
     float measuredLineH =
         font ? font->getLineHeight(physicalFontSize) : physicalFontSize;
 
-    // Render Selection Box
-    if (isFocused && (inputState.selectionStart != inputState.selectionEnd) &&
-        font) {
-      float startX =
-          font->measureText(displayString.substr(0, inputState.selectionStart),
-                            physicalFontSize)
-              .x +
-          padL;
-      float endX =
-          font->measureText(displayString.substr(0, inputState.selectionEnd),
-                            physicalFontSize)
-              .x +
-          padL;
-      float selectW = endX - startX;
-      float selectH = measuredLineH / 1.5f;
-      float selectY = (textboxHeight - selectH) * 0.5f;
-
-      Div(DefaultModifier()
-              .absolute()
-              .pointerEvents(false)
-              .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
-              .offset(startX, selectY)
-              .size(selectW, selectH)
-              .background(glm::vec4(0.0f, 0.3f, 0.67f, 0.65f)));
-    }
-
-    // Presentation & Custom Render Hook Override
-    if (config.customRenderer && font) {
-      float startX = bounds.found ? (bounds.x() + padL) : padL;
-      float startY = bounds.found
-                         ? (bounds.y() + (textboxHeight - measuredLineH) * 0.5f)
-                         : 0.0f;
-      config.customRenderer(displayString, startX, startY, logicalFontSize,
+    // 1. PRESENTATION / CUSTOM RENDER HOOK OVERRIDE (Rendered FIRST)
+    if (config.customRenderer && font && !displayString.empty()) {
+      float localX = padL - inputState.scrollX;
+      float localY = (textboxHeight - (measuredLineH / effectiveScale)) * 0.5f;
+      config.customRenderer(displayString, localX, localY, logicalFontSize,
                             font, textColor);
     } else {
       std::string textToRender =
@@ -641,35 +694,70 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       glm::vec4 finalTextColor = textBuffer.empty() ? "#737373"_hex : textColor;
 
       Text(textToRender, fontId,
-           DefaultModifier()
+           Modifier()
                .color(finalTextColor)
                .fontSize(logicalFontSize)
-               .fontWeight(fontWeight));
+               .fontWeight(fontWeight)
+               .translate(-inputState.scrollX, 0.0f));
+    }
+
+    // 2. RENDER SELECTION BOX SECOND (On Top with Opacity)
+    if (isFocused && (inputState.selectionStart != inputState.selectionEnd) &&
+        font) {
+      float startX = (getSubstringAdvance(
+                          displayString.substr(0, inputState.selectionStart),
+                          font, physicalFontSize, customGapPhysical) +
+                      padL) -
+                     inputState.scrollX;
+      float endX =
+          (getSubstringAdvance(displayString.substr(0, inputState.selectionEnd),
+                               font, physicalFontSize, customGapPhysical) +
+           padL) -
+          inputState.scrollX;
+      float selectW = endX - startX;
+      float selectH = measuredLineH / 1.5f;
+      float selectY = (textboxHeight - selectH) * 0.5f;
+
+      Div(Modifier()
+              .id(selectBoxId)
+              .absolute()
+              .pointerEvents(false)
+              .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
+              .offset(startX, selectY)
+              .size(selectW, selectH)
+              .background(glm::vec4(0.2f, 0.5f, 1.0f, 1.0f))
+              .opacity(0.35f)); // Rendered on top of text with 35% opacity
     }
 
     // Render Drop Target Caret when dragging selected text
-    if (inputState.isDraggingSelectedText && bounds.found && font) {
+    if (uiState && !uiState->activeDragText.empty() && bounds.found && font) {
       bool isOverThisInput =
           (uiState->pointerPos.x >= bounds.x() &&
            uiState->pointerPos.x <= bounds.x() + bounds.width() &&
            uiState->pointerPos.y >= bounds.y() &&
            uiState->pointerPos.y <= bounds.y() + bounds.height());
       if (isOverThisInput) {
-        float relativeMouseX = uiState->pointerPos.x - (bounds.x() + padL);
+        float relativeMouseX =
+            (uiState->pointerPos.x - (bounds.x() + padL)) + inputState.scrollX;
         float totalTextWidth =
-            font ? font->measureText(displayString, physicalFontSize).x : 0.0f;
+            font ? getSubstringAdvance(displayString, font, physicalFontSize,
+                                       customGapPhysical)
+                 : 0.0f;
         float clampedMouseX = std::clamp(relativeMouseX, 0.0f, totalTextWidth);
-        uint32_t dropPos = findWhereCursorLanded(
-            displayString, font, clampedMouseX, physicalFontSize);
+        uint32_t dropPos =
+            findWhereCursorLanded(displayString, font, clampedMouseX,
+                                  physicalFontSize, customGapPhysical);
 
-        float dropOffset = font->measureText(displayString.substr(0, dropPos),
-                                             physicalFontSize)
-                               .x +
-                           padL;
+        float dropOffset =
+            (getSubstringAdvance(displayString.substr(0, dropPos), font,
+                                 physicalFontSize, customGapPhysical) +
+             padL) -
+            inputState.scrollX;
         float dropCaretH = measuredLineH / 1.5f;
         float dropCaretY = (textboxHeight - dropCaretH) * 0.5f;
 
-        Div(DefaultModifier()
+        Div(Modifier()
+                .id(dropCaretId)
                 .absolute()
                 .pointerEvents(false)
                 .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
@@ -679,9 +767,9 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
       }
     }
 
-    // Render Caret Line
+    // Render Caret Line (Unique ID _caret)
     if (isFocused && font) {
-      float cursorOffset = padL;
+      float cursorOffset = padL - inputState.scrollX;
       if (config.isPassword) {
         size_t numCodepoints =
             getCodepointCount(textBuffer.substr(0, inputState.cursorPosition));
@@ -689,17 +777,18 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
         for (size_t i = 0; i < numCodepoints; ++i) {
           maskedSub += "•";
         }
-        cursorOffset += font->measureText(maskedSub, physicalFontSize).x;
+        cursorOffset += getSubstringAdvance(maskedSub, font, physicalFontSize,
+                                            customGapPhysical);
       } else {
-        cursorOffset += font->measureText(displayString.substr(
-                                              0, inputState.cursorPosition),
-                                          physicalFontSize)
-                            .x;
+        cursorOffset += getSubstringAdvance(
+            displayString.substr(0, inputState.cursorPosition), font,
+            physicalFontSize, customGapPhysical);
       }
       float caretH = measuredLineH / 1.5f;
       float caretY = (textboxHeight - caretH) * 0.5f;
 
-      Div(DefaultModifier()
+      Div(Modifier()
+              .id(caretLineId)
               .absolute()
               .attach(AttachPoint::TopLeft, AttachPoint::TopLeft)
               .offset(cursorOffset, caretY)
@@ -709,18 +798,18 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   });
 
   // Floating Drag-and-Drop Selection Ghost
-  if (inputState.isDraggingSelectedText && uiState->pointerDown) {
-    std::string draggedSlice =
-        textBuffer.substr(inputState.selectionStart,
-                          inputState.selectionEnd - inputState.selectionStart);
+  if (uiState && !uiState->activeDragText.empty() && uiState->pointerDown) {
+    std::string draggedSlice = uiState->activeDragText;
+    std::string ghostId = labelId + "_ghost";
 
-    Div(DefaultModifier()
+    Div(Modifier()
+            .id(ghostId)
             .fixed()
             .left(uiState->pointerPos.x + 25.0f)
             .top(uiState->pointerPos.y + 25.0f),
         [&]() {
           Text(draggedSlice, fontId,
-               DefaultModifier().color(textColor).opacity(0.5).fontSize(
+               Modifier().color(textColor).opacity(0.5).fontSize(
                    logicalFontSize));
         });
   }

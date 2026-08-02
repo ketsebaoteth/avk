@@ -85,8 +85,7 @@ Interaction Checkbox(Modifier &&modifier, bool &checked) {
       glm::vec4 checkColor = Colors::white;
       checkColor.a = animatedAlpha;
 
-      Icon(LucideIcon::Check,
-           DefaultModifier().color(checkColor).size(15.0f, 15.0f));
+      Icon(LucideIcon::Check, Modifier().color(checkColor).size(15.0f, 15.0f));
     }
   });
 

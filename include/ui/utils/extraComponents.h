@@ -305,6 +305,11 @@ inline glm::vec4 getTokenColor(TokenType type, const CodeTheme &theme) {
  * @brief Renders a syntax-highlighted code block component with macOS titlebar
  * & copy action.
  */
+/**
+ * @brief Renders a syntax-highlighted code block component with macOS titlebar
+ * & copy action. Uses an O(1) tokenization cache to prevent string allocations
+ * per frame.
+ */
 inline Interaction CodeBlock(const std::string &code,
                              const std::string &language,
                              Modifier &&modifier = Modifier{}) {
@@ -335,8 +340,41 @@ inline Interaction CodeBlock(const std::string &code,
     }
   }
 
-  Clay_ElementId blockId = utils::layout::getNextId(baseId.c_str());
+  // --------------------------------------------------------------------------
+  // Token Cache: Only tokenize code once per unique (code + language) hash
+  // --------------------------------------------------------------------------
+  static std::unordered_map<size_t, std::vector<std::vector<Token>>>
+      s_tokenCache;
+  size_t codeHash = std::hash<std::string>{}(code + "___" + language);
 
+  auto cacheIt = s_tokenCache.find(codeHash);
+  if (cacheIt == s_tokenCache.end()) {
+    std::vector<std::string> lines;
+    std::string currentLine;
+    for (size_t k = 0; k < code.size(); ++k) {
+      if (code[k] == '\n') {
+        lines.push_back(currentLine);
+        currentLine.clear();
+      } else if (code[k] != '\r') {
+        currentLine.push_back(code[k]);
+      }
+    }
+    lines.push_back(currentLine);
+
+    std::vector<std::vector<Token>> tokenizedLines;
+    tokenizedLines.reserve(lines.size());
+
+    for (const auto &lineStr : lines) {
+      tokenizedLines.push_back(tokenizeCode(lineStr, language));
+    }
+
+    s_tokenCache[codeHash] = std::move(tokenizedLines);
+    cacheIt = s_tokenCache.find(codeHash);
+  }
+
+  const auto &cachedLines = cacheIt->second;
+
+  Clay_ElementId blockId = utils::layout::getNextId(baseId.c_str());
   glm::vec4 radius = style.borderRadius.value_or(glm::vec4(8.0f));
 
   Modifier blockStyle = std::move(modifier)
@@ -349,49 +387,49 @@ inline Interaction CodeBlock(const std::string &code,
 
   Interaction result = Div(std::move(blockStyle), [&]() {
     // 1. macOS Titlebar Header
-    Div(DefaultModifier()
+    Div(Modifier()
             .background(theme.titlebarBg)
             .padding(40, 12)
             .widthGrow()
             .center(),
         [&]() {
           // Left Side: Window Traffic Lights & Language Title
-          Div(DefaultModifier()
+          Div(Modifier()
                   .alignX(AlignmentX::SpaceBetween)
                   .alignY(AlignmentY::Center),
               [&]() {
                 // Red Dot
                 Div([]() {
-                  Div(DefaultModifier().size(12, 12).rounded(6.0f).background(
+                  Div(Modifier().size(12, 12).rounded(6.0f).background(
                       "#ff5f56"_hex));
                   // Minimize (Yellow)
-                  Div(DefaultModifier().size(12, 12).rounded(6.0f).background(
+                  Div(Modifier().size(12, 12).rounded(6.0f).background(
                       "#ffbd2e"_hex));
                   // Maximize (Green)
-                  Div(DefaultModifier().size(12, 12).rounded(6.0f).background(
+                  Div(Modifier().size(12, 12).rounded(6.0f).background(
                       "#27c93f"_hex));
                 });
-                Div(DefaultModifier().widthGrow(), []() {});
+                Div(Modifier().widthGrow(), []() {});
                 std::string titleLabel = language.empty() ? "source" : language;
                 Text(titleLabel,
-                     DefaultModifier().color(theme.comment).fontSize(12.0f));
+                     Modifier().color(theme.comment).fontSize(12.0f));
               });
-          Div(DefaultModifier().widthGrow(), []() {});
+          Div(Modifier().widthGrow(), []() {});
 
-          // Right Side: Action Button with Unique ID per CodeBlock instance
+          // Right Side: Action Button
           std::string copyBtnId = "copyBtn_" + baseId;
           atomicComponents::Toast(
               [&]() {
-                auto copyBtn = Button(
-                    DefaultModifier().id(copyBtnId.c_str()).center(), [&]() {
+                auto copyBtn =
+                    Button(Modifier().id(copyBtnId.c_str()).center(), [&]() {
                       if (isCopied) {
-                        Icon(LucideIcon::Check, DefaultModifier()
-                                                    .color("#27c93f"_hex)
-                                                    .size(14.0f, 14.0f));
+                        Icon(
+                            LucideIcon::Check,
+                            Modifier().color("#27c93f"_hex).size(14.0f, 14.0f));
                       } else {
-                        Icon(LucideIcon::Copy, DefaultModifier()
-                                                   .color(theme.comment)
-                                                   .size(14.0f, 14.0f));
+                        Icon(
+                            LucideIcon::Copy,
+                            Modifier().color(theme.comment).size(14.0f, 14.0f));
                       }
                     });
                 if (copyBtn.clicked) {
@@ -401,35 +439,20 @@ inline Interaction CodeBlock(const std::string &code,
               },
               [&]() {
                 Text(isCopied ? "Copied!" : "Copy To ClipBoard",
-                     DefaultModifier().fontSize(10).color(Colors::gray[300]));
+                     Modifier().fontSize(10).color(Colors::gray[300]));
               });
         });
 
-    // 2. Code Body Content (Column of lines, where each line is a Row of
-    // tokens)
-    Div(DefaultModifier().column().padding(16, 20).widthGrow(), [&]() {
-      std::vector<std::string> lines;
-      std::string currentLine;
-      for (size_t k = 0; k < code.size(); ++k) {
-        if (code[k] == '\n') {
-          lines.push_back(currentLine);
-          currentLine.clear();
-        } else if (code[k] != '\r') {
-          currentLine.push_back(code[k]);
-        }
-      }
-      lines.push_back(currentLine);
-
-      for (const auto &lineStr : lines) {
-        auto lineTokens = tokenizeCode(lineStr, language);
-        // Each line container acts as a row for its tokens
-        Div(DefaultModifier().widthGrow(), [&]() {
+    // 2. Code Body Content (Render cached tokens)
+    Div(Modifier().column().padding(16, 20).widthGrow(), [&]() {
+      for (const auto &lineTokens : cachedLines) {
+        Div(Modifier().widthGrow(), [&]() {
           if (lineTokens.empty()) {
-            Text("", DefaultModifier().fontSize(13.0f));
+            Text("", Modifier().fontSize(13.0f));
           } else {
             for (const auto &token : lineTokens) {
               glm::vec4 col = getTokenColor(token.type, theme);
-              Text(token.text, DefaultModifier().color(col).fontSize(13.0f));
+              Text(token.text, Modifier().color(col).fontSize(13.0f));
             }
           }
         });

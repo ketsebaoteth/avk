@@ -28,7 +28,7 @@ inline void drawAnimationDoc(
   using namespace atomic::extras;
   using atomic::motion::MotionHandle;
 
-  Column(DefaultModifier().gap(36).widthGrow(), [&]() {
+  Column(Modifier().gap(36).widthGrow(), [&]() {
     drawHeader(
         "Atomic.Motion Subsystem",
         "A zero-allocation animation engine built for immediate-mode C++ "
@@ -74,13 +74,12 @@ inline void drawAnimationDoc(
             .alignY(AlignmentY::Center)
             .translate(translationX, 0.0f),
         [&]() {
-          Text("Ping-Pong",
-               DefaultModifier().textColor("#ffffff"_hex).fontSize(18));
+          Text("Ping-Pong", Modifier().textColor("#ffffff"_hex).fontSize(18));
         });
 
-    Column(DefaultModifier().gap(14).widthGrow(), []() {
+    Column(Modifier().gap(14).widthGrow(), []() {
       Text("1. Declarative Immediate-Mode Tweens (Sub-Frame Interpolation)",
-           DefaultModifier().fontSize(20).fontWeight(600).textColor(
+           Modifier().fontSize(20).fontWeight(600).textColor(
                Colors::black[900]));
 
       Text(
@@ -90,12 +89,12 @@ inline void drawAnimationDoc(
           "pointer input), the engine intercepts the trajectory, captures "
           "the current instantaneous velocity, and recalculates the path "
           "from the current runtime state to prevent position discontinuities.",
-          DefaultModifier()
+          Modifier()
               .fontSize(13)
               .textWrap(TextWrap::Anywhere)
               .textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(32, 250)
               .background("#ffffff"_hex)
@@ -126,7 +125,7 @@ inline void drawAnimationDoc(
                 MotionHandle(cardId, "border"), targetBorder, 0.22f,
                 motion::AnimationCurve::EaseOut());
 
-            Div(DefaultModifier()
+            Div(Modifier()
                     .id("DeclarativeMorphCard")
                     .padding(30)
                     .scale(scale)
@@ -135,13 +134,13 @@ inline void drawAnimationDoc(
                     .rounded(12.0f)
                     .center(),
                 [&]() {
-                  Column(DefaultModifier().gap(4).center(), [&]() {
+                  Column(Modifier().gap(4).center(), [&]() {
                     Text(pressed ? "State: Pressed"
                                  : (hovered ? "State: Hovered" : "State: Idle"),
-                         DefaultModifier().fontSize(14).fontWeight(600).color(
+                         Modifier().fontSize(14).fontWeight(600).color(
                              Colors::white));
                     Text("Hover & click to test rapid re-baselining",
-                         DefaultModifier().fontSize(11).color("#94a3b8"_hex));
+                         Modifier().fontSize(11).color("#94a3b8"_hex));
                   });
                 });
           });
@@ -166,7 +165,7 @@ inline void drawAnimationDoc(
           "glm::vec4 border = uiState->motionManager.animate<glm::vec4>(\n"
           "    MotionHandle(cardId, \"border\"), targetBorder, 0.22f, "
           "motion::AnimationCurve::EaseOut());\n\n"
-          "Div(DefaultModifier().id(\"DeclarativeMorphCard\").scale(scale)."
+          "Div(Modifier().id(\"DeclarativeMorphCard\").scale(scale)."
           "background(bg));",
           "cpp");
     });
@@ -174,9 +173,9 @@ inline void drawAnimationDoc(
     // -------------------------------------------------------------------------
     // 2. Analytical Mass-Spring-Damper Dynamics
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(14).widthGrow().padding(24, 0), [&]() {
+    Column(Modifier().gap(14).widthGrow().padding(24, 0), [&]() {
       Text("2. Mass-Spring-Damper Physics (Closed-Form Analytical Evaluation)",
-           DefaultModifier().fontSize(20).fontWeight(600).textColor(
+           Modifier().fontSize(20).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Springs in Atomic.Motion evaluate displacement analytically "
            "against elapsed seconds t: "
@@ -186,9 +185,9 @@ inline void drawAnimationDoc(
            "differential equation m*x'' + c*x' + k*x = 0, "
            "it evaluates with 100% precision regardless of frame rate "
            "fluctuations.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(40, 32)
               .background("#ffffff"_hex)
@@ -203,82 +202,74 @@ inline void drawAnimationDoc(
 
             static bool springActive = false;
             if (Button(
-                    DefaultModifier()
-                        .id("ToggleSpringBtn")
-                        .background("#2563eb"_hex),
+                    Modifier().id("ToggleSpringBtn").background("#2563eb"_hex),
                     [&]() {
                       Text(springActive ? "Reset Springs"
                                         : "Trigger Horizontal Showcase",
-                           DefaultModifier().fontSize(12).fontWeight(600).color(
+                           Modifier().fontSize(12).fontWeight(600).color(
                                Colors::white));
                     })
                     .clicked) {
               springActive = !springActive;
             }
 
-            Column(DefaultModifier().gap(28).margin(24, 0), [&]() {
+            Column(Modifier().gap(28).margin(24, 0), [&]() {
               // 1. Default Spring
               float defVal = uiState->motionManager.animateSpring<float>(
                   MotionHandle{springId + 1}, springActive ? 85.0f : 0.0f,
                   motion::SpringConfig::Default());
 
-              Div(DefaultModifier().row().gap(46).alignY(AlignmentY::Center),
-                  [&]() {
-                    Column(DefaultModifier().gap(4), [&]() {
-                      Text("Default",
-                           DefaultModifier().fontSize(11).fontWeight(600).color(
-                               Colors::black[900]));
-                      Text("k=120, c=14",
-                           DefaultModifier().fontSize(9).color("#475569"_hex));
-                    });
-                    Div(DefaultModifier()
-                            .size(90, 80)
-                            .translate(defVal, 0.0f)
-                            .background("#0284c7"_hex)
-                            .rounded(10.0f));
-                  });
+              Div(Modifier().row().gap(46).alignY(AlignmentY::Center), [&]() {
+                Column(Modifier().gap(4), [&]() {
+                  Text("Default", Modifier().fontSize(11).fontWeight(600).color(
+                                      Colors::black[900]));
+                  Text("k=120, c=14",
+                       Modifier().fontSize(9).color("#475569"_hex));
+                });
+                Div(Modifier()
+                        .size(90, 80)
+                        .translate(defVal, 0.0f)
+                        .background("#0284c7"_hex)
+                        .rounded(10.0f));
+              });
 
               // 2. Bouncy Spring
               float bounceVal = uiState->motionManager.animateSpring<float>(
                   MotionHandle{springId + 2}, springActive ? 85.0f : 0.0f,
                   motion::SpringConfig::Bouncy());
 
-              Div(DefaultModifier().row().gap(46).alignY(AlignmentY::Center),
-                  [&]() {
-                    Column(DefaultModifier().gap(4), [&]() {
-                      Text("Bouncy",
-                           DefaultModifier().fontSize(11).fontWeight(600).color(
-                               Colors::black[900]));
-                      Text("k=180, c=8",
-                           DefaultModifier().fontSize(9).color("#475569"_hex));
-                    });
-                    Div(DefaultModifier()
-                            .size(90, 80)
-                            .translate(bounceVal, 0.0f)
-                            .background("#dc2626"_hex)
-                            .rounded(10.0f));
-                  });
+              Div(Modifier().row().gap(46).alignY(AlignmentY::Center), [&]() {
+                Column(Modifier().gap(4), [&]() {
+                  Text("Bouncy", Modifier().fontSize(11).fontWeight(600).color(
+                                     Colors::black[900]));
+                  Text("k=180, c=8",
+                       Modifier().fontSize(9).color("#475569"_hex));
+                });
+                Div(Modifier()
+                        .size(90, 80)
+                        .translate(bounceVal, 0.0f)
+                        .background("#dc2626"_hex)
+                        .rounded(10.0f));
+              });
 
               // 3. Snappy Spring
               float snappyVal = uiState->motionManager.animateSpring<float>(
                   MotionHandle{springId + 3}, springActive ? 85.0f : 0.0f,
                   motion::SpringConfig::Snappy());
 
-              Div(DefaultModifier().row().gap(46).alignY(AlignmentY::Center),
-                  [&]() {
-                    Column(DefaultModifier().gap(4), [&]() {
-                      Text("Snappy",
-                           DefaultModifier().fontSize(11).fontWeight(600).color(
-                               Colors::black[900]));
-                      Text("k=300, c=22",
-                           DefaultModifier().fontSize(9).color("#475569"_hex));
-                    });
-                    Div(DefaultModifier()
-                            .size(90, 80)
-                            .translate(snappyVal, 0.0f)
-                            .background("#059669"_hex)
-                            .rounded(10.0f));
-                  });
+              Div(Modifier().row().gap(46).alignY(AlignmentY::Center), [&]() {
+                Column(Modifier().gap(4), [&]() {
+                  Text("Snappy", Modifier().fontSize(11).fontWeight(600).color(
+                                     Colors::black[900]));
+                  Text("k=300, c=22",
+                       Modifier().fontSize(9).color("#475569"_hex));
+                });
+                Div(Modifier()
+                        .size(90, 80)
+                        .translate(snappyVal, 0.0f)
+                        .background("#059669"_hex)
+                        .rounded(10.0f));
+              });
 
               // 4. Heavy Spring
               motion::SpringConfig heavyConfig{
@@ -287,21 +278,19 @@ inline void drawAnimationDoc(
                   MotionHandle{springId + 4}, springActive ? 85.0f : 0.0f,
                   heavyConfig);
 
-              Div(DefaultModifier().row().gap(46).alignY(AlignmentY::Center),
-                  [&]() {
-                    Column(DefaultModifier().gap(4), [&]() {
-                      Text("Heavy",
-                           DefaultModifier().fontSize(11).fontWeight(600).color(
-                               Colors::black[900]));
-                      Text("m=3, k=80",
-                           DefaultModifier().fontSize(9).color("#475569"_hex));
-                    });
-                    Div(DefaultModifier()
-                            .size(90, 80)
-                            .translate(heavyVal, 0.0f)
-                            .background("#7c3aed"_hex)
-                            .rounded(10.0f));
-                  });
+              Div(Modifier().row().gap(46).alignY(AlignmentY::Center), [&]() {
+                Column(Modifier().gap(4), [&]() {
+                  Text("Heavy", Modifier().fontSize(11).fontWeight(600).color(
+                                    Colors::black[900]));
+                  Text("m=3, k=80",
+                       Modifier().fontSize(9).color("#475569"_hex));
+                });
+                Div(Modifier()
+                        .size(90, 80)
+                        .translate(heavyVal, 0.0f)
+                        .background("#7c3aed"_hex)
+                        .rounded(10.0f));
+              });
             });
           });
 
@@ -322,7 +311,7 @@ inline void drawAnimationDoc(
           "float y3 = uiState->motionManager.animateSpring<float>(\n"
           "    MotionHandle{id + 3}, targetY, heavy);\n\n"
           "// Render with .translate(0.0f, -y) for visual GPU displacement\n"
-          "Div(DefaultModifier().translate(0.0f, "
+          "Div(Modifier().translate(0.0f, "
           "-y1).background(\"#0284c7\"_hex));",
           "cpp");
     });
@@ -330,17 +319,17 @@ inline void drawAnimationDoc(
     // -------------------------------------------------------------------------
     // 3. Multi-Track GSAP-Style Timelines
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(14).widthGrow(), []() {
+    Column(Modifier().gap(14).widthGrow(), []() {
       Text("3. GSAP-Style Multi-Track Timeline Orchestration",
-           DefaultModifier().fontSize(20).fontWeight(600).textColor(
+           Modifier().fontSize(20).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Timelines allow you to chain, overlap, and control multi-element "
            "choreographies. "
            "Full playback controls are supported: play(), pause(), stop(), "
            "restart(), seek(timestamp), and timeScale(speed).",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(32)
               .background("#ffffff"_hex)
@@ -355,17 +344,14 @@ inline void drawAnimationDoc(
             static float box2X = 0.0f;
             static float box3X = 0.0f;
 
-            Column(DefaultModifier().gap(28).margin(24, 0), [&]() {
+            Column(Modifier().gap(28).margin(24, 0), [&]() {
               // Timeline Control Buttons
-              Row(DefaultModifier().gap(12), [&]() {
-                if (Button(DefaultModifier()
-                               .id("TlPlayBtn")
-                               .background("#10b981"_hex),
+              Row(Modifier().gap(12), [&]() {
+                if (Button(Modifier().id("TlPlayBtn").background("#10b981"_hex),
                            [&]() {
-                             Text("Play Timeline", DefaultModifier()
-                                                       .fontSize(12)
-                                                       .fontWeight(600)
-                                                       .color(Colors::white));
+                             Text("Play Timeline",
+                                  Modifier().fontSize(12).fontWeight(600).color(
+                                      Colors::white));
                            })
                         .clicked) {
 
@@ -391,15 +377,13 @@ inline void drawAnimationDoc(
                   tl.play();
                 }
 
-                if (Button(DefaultModifier()
-                               .id("TlResetBtn")
-                               .background("#64748b"_hex),
-                           [&]() {
-                             Text("Reset", DefaultModifier()
-                                               .fontSize(12)
-                                               .fontWeight(600)
-                                               .color(Colors::white));
-                           })
+                if (Button(
+                        Modifier().id("TlResetBtn").background("#64748b"_hex),
+                        [&]() {
+                          Text("Reset",
+                               Modifier().fontSize(12).fontWeight(600).color(
+                                   Colors::white));
+                        })
                         .clicked) {
                   uiState->motionManager.clearTimelines();
                   box1X = 0.0f;
@@ -409,55 +393,46 @@ inline void drawAnimationDoc(
               });
 
               // Box 1 (ExpoOut)
-              Div(DefaultModifier().row().gap(16).alignY(AlignmentY::Center),
-                  [&]() {
-                    Column(DefaultModifier().gap(4), [&]() {
-                      Text("Box 1",
-                           DefaultModifier().fontSize(11).fontWeight(600).color(
-                               Colors::black[900]));
-                      Text("ExpoOut",
-                           DefaultModifier().fontSize(9).color("#475569"_hex));
-                    });
-                    Div(DefaultModifier()
-                            .size(90, 80)
-                            .translate(box1X, 0.0f)
-                            .background("#0284c7"_hex)
-                            .rounded(10.0f));
-                  });
+              Div(Modifier().row().gap(16).alignY(AlignmentY::Center), [&]() {
+                Column(Modifier().gap(4), [&]() {
+                  Text("Box 1", Modifier().fontSize(11).fontWeight(600).color(
+                                    Colors::black[900]));
+                  Text("ExpoOut", Modifier().fontSize(9).color("#475569"_hex));
+                });
+                Div(Modifier()
+                        .size(90, 80)
+                        .translate(box1X, 0.0f)
+                        .background("#0284c7"_hex)
+                        .rounded(10.0f));
+              });
 
               // Box 2 (EaseOut)
-              Div(DefaultModifier().row().gap(16).alignY(AlignmentY::Center),
-                  [&]() {
-                    Column(DefaultModifier().gap(4), [&]() {
-                      Text("Box 2",
-                           DefaultModifier().fontSize(11).fontWeight(600).color(
-                               Colors::black[900]));
-                      Text("EaseOut",
-                           DefaultModifier().fontSize(9).color("#475569"_hex));
-                    });
-                    Div(DefaultModifier()
-                            .size(90, 80)
-                            .translate(box2X, 0.0f)
-                            .background("#d97706"_hex)
-                            .rounded(10.0f));
-                  });
+              Div(Modifier().row().gap(16).alignY(AlignmentY::Center), [&]() {
+                Column(Modifier().gap(4), [&]() {
+                  Text("Box 2", Modifier().fontSize(11).fontWeight(600).color(
+                                    Colors::black[900]));
+                  Text("EaseOut", Modifier().fontSize(9).color("#475569"_hex));
+                });
+                Div(Modifier()
+                        .size(90, 80)
+                        .translate(box2X, 0.0f)
+                        .background("#d97706"_hex)
+                        .rounded(10.0f));
+              });
 
               // Box 3 (Bouncy)
-              Div(DefaultModifier().row().gap(16).alignY(AlignmentY::Center),
-                  [&]() {
-                    Column(DefaultModifier().gap(4), [&]() {
-                      Text("Box 3",
-                           DefaultModifier().fontSize(11).fontWeight(600).color(
-                               Colors::black[900]));
-                      Text("Bouncy",
-                           DefaultModifier().fontSize(9).color("#475569"_hex));
-                    });
-                    Div(DefaultModifier()
-                            .size(90, 80)
-                            .translate(box3X, 0.0f)
-                            .background("#4f46e5"_hex)
-                            .rounded(10.0f));
-                  });
+              Div(Modifier().row().gap(16).alignY(AlignmentY::Center), [&]() {
+                Column(Modifier().gap(4), [&]() {
+                  Text("Box 3", Modifier().fontSize(11).fontWeight(600).color(
+                                    Colors::black[900]));
+                  Text("Bouncy", Modifier().fontSize(9).color("#475569"_hex));
+                });
+                Div(Modifier()
+                        .size(90, 80)
+                        .translate(box3X, 0.0f)
+                        .background("#4f46e5"_hex)
+                        .rounded(10.0f));
+              });
             });
           });
 
@@ -484,15 +459,15 @@ inline void drawAnimationDoc(
     // -------------------------------------------------------------------------
     // 4. Container Stagger Choreography (staggerTo)
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(14).padding(10, 100).widthGrow(), []() {
+    Column(Modifier().gap(14).padding(10, 100).widthGrow(), []() {
       Text("4. Container Stagger Choreography (staggerTo)",
-           DefaultModifier().fontSize(20).fontWeight(600).textColor(
+           Modifier().fontSize(20).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Automatically cascade entrance animations across arrays or lists "
            "of elements with fixed delay offsets.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(32)
               .background("#ffffff"_hex)
@@ -506,15 +481,14 @@ inline void drawAnimationDoc(
             static std::vector<float> itemScales = {1.0f, 1.0f, 1.0f,
                                                     1.0f, 1.0f, 1.0f};
 
-            if (Button(
-                    DefaultModifier()
-                        .id("TriggerStaggerBtn")
-                        .background("#8b5cf6"_hex),
-                    [&]() {
-                      Text("Cascade Stagger Entrance",
-                           DefaultModifier().fontSize(12).fontWeight(600).color(
-                               Colors::white));
-                    })
+            if (Button(Modifier()
+                           .id("TriggerStaggerBtn")
+                           .background("#8b5cf6"_hex),
+                       [&]() {
+                         Text("Cascade Stagger Entrance",
+                              Modifier().fontSize(12).fontWeight(600).color(
+                                  Colors::white));
+                       })
                     .clicked) {
 
               for (float &s : itemScales)
@@ -538,9 +512,9 @@ inline void drawAnimationDoc(
               tl.play();
             }
 
-            Row(DefaultModifier().gap(12).margin(10, 0).center(), [&]() {
+            Row(Modifier().gap(12).margin(10, 0).center(), [&]() {
               for (size_t i = 0; i < itemScales.size(); ++i) {
-                Div(DefaultModifier()
+                Div(Modifier()
                         .size(90, 80)
                         .scale(itemScales[i])
                         .background("#a855f7"_hex)
@@ -548,7 +522,7 @@ inline void drawAnimationDoc(
                         .center(),
                     [&]() {
                       Text(std::to_string(i + 1),
-                           DefaultModifier().fontSize(15).fontWeight(600).color(
+                           Modifier().fontSize(15).fontWeight(600).color(
                                Colors::white));
                     });
               }
@@ -577,16 +551,16 @@ inline void drawAnimationDoc(
     // -------------------------------------------------------------------------
     // 5. Type-Safe Retained Tweens & Property References
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(14).widthGrow(), []() {
+    Column(Modifier().gap(14).widthGrow(), []() {
       Text(
           "5. Type-Safe Retained Tweens & Property References (PropertyRef<T>)",
-          DefaultModifier().fontSize(20).fontWeight(600).textColor(
+          Modifier().fontSize(20).fontWeight(600).textColor(
               Colors::black[900]));
       Text("In addition to immediate-mode calls, Atomic.Motion allows binding "
            "memory addresses directly to Tween<T> instances. "
            "Supports builder-style configurations, custom spring settings, and "
            "zero-allocation lifecycle callbacks.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
       CodeBlock(
           "using namespace atomic::motion;\n\n"
@@ -611,17 +585,17 @@ inline void drawAnimationDoc(
     // -------------------------------------------------------------------------
     // 6. Complete Robert Penner Easing Suite
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(14).widthGrow(), []() {
+    Column(Modifier().gap(14).widthGrow(), []() {
       Text("6. Robert Penner Easing Curves Gallery (Curves.h & Easing::*)",
-           DefaultModifier().fontSize(20).fontWeight(600).textColor(
+           Modifier().fontSize(20).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Atomic.Motion provides both AnimationCurve presets (evaluated via "
            "Newton-Raphson Bezier solvers) "
            "and pure analytical scalar easing functions inside namespace "
            "atomic::motion::Easing.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(24)
               .background("#ffffff"_hex)
@@ -630,57 +604,57 @@ inline void drawAnimationDoc(
               .column()
               .gap(12),
           [&]() {
-            Row(DefaultModifier().gap(16).center(), [&]() {
-              Div(DefaultModifier()
+            Row(Modifier().gap(16).center(), [&]() {
+              Div(Modifier()
                       .padding(8, 14)
                       .background("#f1f5f9"_hex)
                       .rounded(6.0f),
                   [&]() {
                     Text("AnimationCurve::EaseOut()",
-                         DefaultModifier().fontSize(11).color("#334155"_hex));
+                         Modifier().fontSize(11).color("#334155"_hex));
                   });
-              Div(DefaultModifier()
+              Div(Modifier()
                       .padding(8, 14)
                       .background("#f1f5f9"_hex)
                       .rounded(6.0f),
                   [&]() {
                     Text("AnimationCurve::ExpoOut()",
-                         DefaultModifier().fontSize(11).color("#334155"_hex));
+                         Modifier().fontSize(11).color("#334155"_hex));
                   });
-              Div(DefaultModifier()
+              Div(Modifier()
                       .padding(8, 14)
                       .background("#f1f5f9"_hex)
                       .rounded(6.0f),
                   [&]() {
                     Text("AnimationCurve::BackOut(1.5f)",
-                         DefaultModifier().fontSize(11).color("#334155"_hex));
+                         Modifier().fontSize(11).color("#334155"_hex));
                   });
             });
 
-            Row(DefaultModifier().gap(16).center(), [&]() {
-              Div(DefaultModifier()
+            Row(Modifier().gap(16).center(), [&]() {
+              Div(Modifier()
                       .padding(8, 14)
                       .background("#f1f5f9"_hex)
                       .rounded(6.0f),
                   [&]() {
                     Text("Easing::BounceOut(t)",
-                         DefaultModifier().fontSize(11).color("#334155"_hex));
+                         Modifier().fontSize(11).color("#334155"_hex));
                   });
-              Div(DefaultModifier()
+              Div(Modifier()
                       .padding(8, 14)
                       .background("#f1f5f9"_hex)
                       .rounded(6.0f),
                   [&]() {
                     Text("Easing::ElasticOut(t)",
-                         DefaultModifier().fontSize(11).color("#334155"_hex));
+                         Modifier().fontSize(11).color("#334155"_hex));
                   });
-              Div(DefaultModifier()
+              Div(Modifier()
                       .padding(8, 14)
                       .background("#f1f5f9"_hex)
                       .rounded(6.0f),
                   [&]() {
                     Text("Easing::SineInOut(t)",
-                         DefaultModifier().fontSize(11).color("#334155"_hex));
+                         Modifier().fontSize(11).color("#334155"_hex));
                   });
             });
           });

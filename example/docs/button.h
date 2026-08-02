@@ -23,7 +23,7 @@ inline void drawButtonDoc(
   using namespace atomicComponents;
   using namespace atomic::extras;
 
-  Column(DefaultModifier().gap(32).widthGrow(), [&]() {
+  Column(Modifier().gap(32).widthGrow(), [&]() {
     // -------------------------------------------------------------------------
     // Header
     // -------------------------------------------------------------------------
@@ -37,15 +37,15 @@ inline void drawButtonDoc(
     // -------------------------------------------------------------------------
     // 1. Button Variants Showcase
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
+    Column(Modifier().gap(12).widthGrow(), []() {
       Text("1. Variant Palette (Primary, Secondary, Destructive, Ghost)",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+           Modifier().fontSize(18).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Buttons adapt automatically through fluent modifiers to match "
            "design system tokens.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(30)
               .background("#ffffff"_hex)
@@ -56,60 +56,60 @@ inline void drawButtonDoc(
               .center(),
           [&]() {
             // Primary
-            Button(DefaultModifier()
+            Button(Modifier()
                        .id("btnPrimary")
                        .background("#18181b"_hex)
                        .color(Colors::white),
                    [&]() {
                      Text("Primary",
-                          DefaultModifier().fontSize(13).fontWeight(500).color(
+                          Modifier().fontSize(13).fontWeight(500).color(
                               Colors::white));
                    });
 
             // Secondary
-            Button(DefaultModifier()
+            Button(Modifier()
                        .id("btnSecondary")
                        .background("#f4f4f5"_hex)
                        .color(Colors::black[900]),
                    [&]() {
                      Text("Secondary",
-                          DefaultModifier().fontSize(13).fontWeight(500).color(
+                          Modifier().fontSize(13).fontWeight(500).color(
                               Colors::black[900]));
                    });
 
             // Destructive
-            Button(DefaultModifier()
+            Button(Modifier()
                        .id("btnDestructive")
                        .background("#ef4444"_hex)
                        .color(Colors::white),
                    [&]() {
                      Text("Destructive",
-                          DefaultModifier().fontSize(13).fontWeight(500).color(
+                          Modifier().fontSize(13).fontWeight(500).color(
                               Colors::white));
                    });
 
             // Ghost / Outline
-            Button(DefaultModifier()
+            Button(Modifier()
                        .id("btnOutline")
                        .background(Colors::transparent)
                        .border(Colors::gray[300], 1),
                    [&]() {
                      Text("Outline",
-                          DefaultModifier().fontSize(13).fontWeight(500).color(
+                          Modifier().fontSize(13).fontWeight(500).color(
                               Colors::black[800]));
                    });
           });
 
       CodeBlock(
           "// Primary Dark Zinc Button\n"
-          "Button(DefaultModifier().id(\"primary\").background(\"#18181b\"_hex)"
+          "Button(Modifier().id(\"primary\").background(\"#18181b\"_hex)"
           ", [&]() {\n"
-          "    Text(\"Primary\", DefaultModifier().color(Colors::white));\n"
+          "    Text(\"Primary\", Modifier().color(Colors::white));\n"
           "});\n\n"
           "// Destructive Red Button\n"
-          "Button(DefaultModifier().id(\"destructive\").background(\"#ef4444\"_"
+          "Button(Modifier().id(\"destructive\").background(\"#ef4444\"_"
           "hex), [&]() {\n"
-          "    Text(\"Destructive\", DefaultModifier().color(Colors::white));\n"
+          "    Text(\"Destructive\", Modifier().color(Colors::white));\n"
           "});",
           "cpp");
     });
@@ -117,15 +117,15 @@ inline void drawButtonDoc(
     // -------------------------------------------------------------------------
     // 2. Icon & Content Composition
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
+    Column(Modifier().gap(12).widthGrow(), []() {
       Text("2. Rich Content Composition",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+           Modifier().fontSize(18).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Because buttons accept arbitrary lambda children, you can compose "
            "vector icons, badge counts, and typography freely.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(30)
               .background("#ffffff"_hex)
@@ -136,37 +136,37 @@ inline void drawButtonDoc(
               .center(),
           [&]() {
             Button(
-                DefaultModifier().id("btnComposer").background("#2563eb"_hex),
+                Modifier().id("btnComposer").background("#2563eb"_hex),
                 [&]() {
-                  Row(DefaultModifier().gap(8).center(), [&]() {
+                  Row(Modifier().gap(8).center(), [&]() {
                     Icon(LucideIcon::Sparkles,
-                         DefaultModifier().size(14, 14).color(Colors::white));
+                         Modifier().size(14, 14).color(Colors::white));
                     Text("Generate AI Asset",
-                         DefaultModifier().fontSize(13).fontWeight(500).color(
+                         Modifier().fontSize(13).fontWeight(500).color(
                              Colors::white));
                   });
                 });
 
             Button(
-                DefaultModifier().id("btnDownload").background("#10b981"_hex),
+                Modifier().id("btnDownload").background("#10b981"_hex),
                 [&]() {
-                  Row(DefaultModifier().gap(8).center(), [&]() {
+                  Row(Modifier().gap(8).center(), [&]() {
                     Icon(LucideIcon::Download,
-                         DefaultModifier().size(14, 14).color(Colors::white));
+                         Modifier().size(14, 14).color(Colors::white));
                     Text("Download File",
-                         DefaultModifier().fontSize(13).fontWeight(500).color(
+                         Modifier().fontSize(13).fontWeight(500).color(
                              Colors::white));
                   });
                 });
           });
 
-      CodeBlock("Button(DefaultModifier().id(\"aiBtn\").background(\"#2563eb\"_"
+      CodeBlock("Button(Modifier().id(\"aiBtn\").background(\"#2563eb\"_"
                 "hex), [&]() {\n"
-                "    Row(DefaultModifier().gap(8).center(), [&]() {\n"
-                "        Icon(LucideIcon::Sparkles, DefaultModifier().size(14, "
+                "    Row(Modifier().gap(8).center(), [&]() {\n"
+                "        Icon(LucideIcon::Sparkles, Modifier().size(14, "
                 "14).color(Colors::white));\n"
                 "        Text(\"Generate AI Asset\", "
-                "DefaultModifier().color(Colors::white));\n"
+                "Modifier().color(Colors::white));\n"
                 "    });\n"
                 "});",
                 "cpp");
@@ -175,15 +175,15 @@ inline void drawButtonDoc(
     // -------------------------------------------------------------------------
     // 3. Tactile Physical Spring Feedback
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
+    Column(Modifier().gap(12).widthGrow(), []() {
       Text("3. Tactile Spring Press Dynamics",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+           Modifier().fontSize(18).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Combine button click interactions with atomic::motion spring "
            "simulations to create physical push responses.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(30)
               .background("#ffffff"_hex)
@@ -195,12 +195,12 @@ inline void drawButtonDoc(
             uint32_t springBtnId = hashLabel("TactileSpringBtn");
 
             Interaction btn = Button(
-                DefaultModifier()
+                Modifier()
                     .id("TactileSpringBtn")
                     .background("#f59e0b"_hex),
                 [&]() {
                   Text("Press For Spring Bounce",
-                       DefaultModifier().fontSize(13).fontWeight(600).color(
+                       Modifier().fontSize(13).fontWeight(600).color(
                            Colors::white));
                 });
 
@@ -210,18 +210,18 @@ inline void drawButtonDoc(
                 btn.pressed ? 0.90f : 1.0f, motion::SpringConfig::Bouncy());
 
             // Re-render button preview with spring scale
-            Button(DefaultModifier()
+            Button(Modifier()
                        .id("SpringPreview")
                        .scale(springScale)
                        .background("#f59e0b"_hex),
                    [&]() {
                      Text("Spring Tactile Push",
-                          DefaultModifier().fontSize(13).fontWeight(600).color(
+                          Modifier().fontSize(13).fontWeight(600).color(
                               Colors::white));
                    });
           });
 
-      CodeBlock("Interaction btn = Button(DefaultModifier().id(\"tactile\"), "
+      CodeBlock("Interaction btn = Button(Modifier().id(\"tactile\"), "
                 "[&]() {\n"
                 "    Text(\"Push Me\");\n"
                 "});\n\n"
@@ -237,15 +237,15 @@ inline void drawButtonDoc(
     // -------------------------------------------------------------------------
     // 4. Loading & Disabled States
     // -------------------------------------------------------------------------
-    Column(DefaultModifier().gap(12).widthGrow(), []() {
+    Column(Modifier().gap(12).widthGrow(), []() {
       Text("4. Disabled & Loading States",
-           DefaultModifier().fontSize(18).fontWeight(600).textColor(
+           Modifier().fontSize(18).fontWeight(600).textColor(
                Colors::black[900]));
       Text("Disabled buttons automatically suppress click/hover signals and "
            "apply opacity cascading.",
-           DefaultModifier().fontSize(13).textColor(Colors::black[500]));
+           Modifier().fontSize(13).textColor(Colors::black[500]));
 
-      Div(DefaultModifier()
+      Div(Modifier()
               .widthGrow()
               .padding(30)
               .background("#ffffff"_hex)
@@ -255,17 +255,17 @@ inline void drawButtonDoc(
               .gap(16)
               .center(),
           [&]() {
-            Button(DefaultModifier().id("btnDisabled").disabled(true), [&]() {
+            Button(Modifier().id("btnDisabled").disabled(true), [&]() {
               Text("Disabled Action",
-                   DefaultModifier().fontSize(13).fontWeight(500).color(
+                   Modifier().fontSize(13).fontWeight(500).color(
                        Colors::black[400]));
             });
           });
 
       CodeBlock(
-          "Button(DefaultModifier().id(\"disabled\").disabled(true), [&]() {\n"
+          "Button(Modifier().id(\"disabled\").disabled(true), [&]() {\n"
           "    Text(\"Disabled Action\", "
-          "DefaultModifier().color(Colors::black[400]));\n"
+          "Modifier().color(Colors::black[400]));\n"
           "});",
           "cpp");
     });
