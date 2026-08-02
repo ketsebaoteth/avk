@@ -1,18 +1,9 @@
-#include "core/app/App.h"
-#include "core/app/Types.h"
-#include "docs/input.h"
-#include "ui/components.h"
-#include "ui/core/frame.h"
-#include "ui/core/resources.h"
-#include "ui/generated/lucideIcons.generated.h"
-#include "ui/style/modifier.h"
-#include "ui/style/style.h"
-#include "ui/utils/color.h"
+#include "avk/atomic.h"
 
-// Modular documentation headers
 #include "docs/animation.h"
 #include "docs/button.h"
 #include "docs/div.h"
+#include "docs/input.h"
 
 #include <print>
 #include <string>
