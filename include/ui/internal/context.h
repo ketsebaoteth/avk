@@ -152,6 +152,9 @@ UIState *getUiState();
 VeraApp *getVeraApp();
 uint32_t &getElementIdCounter();
 
+uint32_t getActiveFont();
+void SetActiveFont(uint32_t fontid);
+
 /*
  * @breif disable atomic dev tools
  * */

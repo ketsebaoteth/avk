@@ -12,10 +12,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Vulkan SDK
+find_package(Vulkan REQUIRED)
 if(DEFINED ENV{VULKAN_SDK})
   set(VULKAN_HEADERS_DIR "$ENV{VULKAN_SDK}/include")
 else()
-  find_package(Vulkan REQUIRED)
   set(VULKAN_HEADERS_DIR ${Vulkan_INCLUDE_DIRS})
 endif()
 
@@ -26,7 +26,8 @@ find_program(GLSLC_EXECUTABLE glslc REQUIRED)
 
 set(SHADER_SOURCES
     shaders/ui.vert
-    shaders/ui.frag
+    shaders/ui_shape.frag
+    shaders/ui_text.frag
 )
 
 set(SPV_OUTPUTS)
@@ -57,7 +58,6 @@ include(FetchContent)
 option(TRACY_ENABLE "Enable Tracy Profiler" ON)
 set(TRACY_ENABLE ON CACHE BOOL "Enable Tracy Profiler" FORCE)
 set(TRACY_ON_DEMAND OFF CACHE BOOL "Disable on-demand" FORCE)
-
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/tracy/CMakeLists.txt")
   add_subdirectory(thirdparty/tracy)
@@ -95,7 +95,7 @@ target_include_directories(volk PUBLIC
 if(WIN32)
   target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WIN32_KHR)
 elseif(UNIX AND NOT APPLE)
-  target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WAYLAND_KHR VK_USE_PLATFORM_XLIB_KHR)
+  target_compile_definitions(volk PUBLIC VK_USE_PLATFORM_WAYLAND_KHR VK_USE_PLATFORM_XLIB_KHR VK_USE_PLATFORM_XCB_KHR)
 endif()
 
 # HarfBuzz
@@ -129,14 +129,14 @@ else()
   FetchContent_MakeAvailable(SheenBidi)
 endif()
 
-# FreeType (Must be added BEFORE msdfgen so msdfgen-ext detects FreeType!)
+# FreeType
 set(FT_DISABLE_ZLIB OFF CACHE BOOL "" FORCE)
 set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
 set(FT_DISABLE_PNG OFF CACHE BOOL "" FORCE)
 set(FT_DISABLE_HARFBUZZ OFF CACHE BOOL "" FORCE)
 add_subdirectory(thirdparty/freetype)
 
-# msdfgen (Turn off Vcpkg in msdfgen)
+# msdfgen
 set(MSDFGEN_USE_VCPKG OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_CORE_ONLY OFF CACHE BOOL "" FORCE)
 set(MSDFGEN_BUILD_STANDALONE OFF CACHE BOOL "" FORCE)
@@ -284,7 +284,9 @@ target_compile_definitions(avk_engine PUBLIC
     TRACY_ENABLE
 )
 
+# ⚡ LINK VULKAN SO SYMBOLS RESOLVE FOR WINDOWING / SURFACE CALLS
 target_link_libraries(avk_engine PUBLIC
+    Vulkan::Vulkan
     volk
     vera_windowing
     glm
@@ -304,11 +306,11 @@ target_compile_definitions(avk_engine PRIVATE
     AVK_GENERATED_FONTS_DIR="${GENERATED_FONTS_DIR}"
 )
 
-# Platform Flags
+# Platform Flags & Vulkan Surface Extensions
 if(WIN32)
-  target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_WIN32 UNICODE _UNICODE)
+  target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_WIN32 VK_USE_PLATFORM_WIN32_KHR UNICODE _UNICODE)
 elseif(UNIX AND NOT APPLE)
-  target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_LINUX)
+  target_compile_definitions(avk_engine PUBLIC VERA_PLATFORM_LINUX VK_USE_PLATFORM_WAYLAND_KHR VK_USE_PLATFORM_XLIB_KHR VK_USE_PLATFORM_XCB_KHR)
 endif()
 
 # =============================================================================
@@ -328,7 +330,7 @@ atomic_add_font(
 # 6. EXAMPLE EXECUTABLE
 # =============================================================================
 add_executable(avk_example example/basic.cpp)
-target_link_libraries(avk_example PRIVATE avk_engine)
+target_link_libraries(avk_example PRIVATE avk_engine Vulkan::Vulkan)
 
 if(MSVC)
   target_compile_options(avk_example PRIVATE
@@ -343,9 +345,9 @@ target_compile_definitions(avk_example PRIVATE
 )
 
 if(WIN32)
-  target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_WIN32 UNICODE _UNICODE)
+  target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_WIN32 VK_USE_PLATFORM_WIN32_KHR UNICODE _UNICODE)
 elseif(UNIX AND NOT APPLE)
-  target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_LINUX)
+  target_compile_definitions(avk_example PRIVATE VERA_PLATFORM_LINUX VK_USE_PLATFORM_WAYLAND_KHR VK_USE_PLATFORM_XLIB_KHR VK_USE_PLATFORM_XCB_KHR)
 endif()
 
 # Copy assets folder

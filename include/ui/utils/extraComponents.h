@@ -8,7 +8,9 @@
 #include "ui/internal/context.h"
 #include "ui/style/modifier.h"
 #include "ui/style/style.h"
+#include "ui/style/themeManager.h"
 #include "ui/utils/color.h"
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -20,17 +22,41 @@
 namespace atomic::extras {
 
 struct CodeTheme {
-  glm::vec4 background = {0.98f, 0.98f, 0.99f,
-                          1.0f}; // Clean white/light background
-  glm::vec4 titlebarBg = {0.93f, 0.93f, 0.95f, 1.0f}; // Subtle gray titlebar
-  glm::vec4 border = {0.85f, 0.85f, 0.88f, 1.0f};     // Soft border
-  glm::vec4 text = {0.15f, 0.15f, 0.18f, 1.0f};       // Dark charcoal text
-  glm::vec4 keyword = {0.75f, 0.15f, 0.50f, 1.0f};    // Rich magenta/purple
-  glm::vec4 typeName = {0.05f, 0.45f, 0.75f, 1.0f};   // Vibrant blue
-  glm::vec4 stringLit = {0.10f, 0.55f, 0.20f, 1.0f};  // Deep green
-  glm::vec4 comment = {0.45f, 0.48f, 0.52f, 1.0f};    // Muted slate gray
-  glm::vec4 number = {0.70f, 0.35f, 0.05f, 1.0f};     // Warm orange/brown
-  glm::vec4 symbol = {0.30f, 0.32f, 0.36f, 1.0f};     // Neutral symbol color
+  glm::vec4 background;
+  glm::vec4 titlebarBg;
+  glm::vec4 border;
+  glm::vec4 text;
+  glm::vec4 keyword;
+  glm::vec4 typeName;
+  glm::vec4 stringLit;
+  glm::vec4 comment;
+  glm::vec4 number;
+  glm::vec4 symbol;
+
+  static CodeTheme FetchCurrent() {
+    auto &tm = ThemeManager::getInstance();
+    return CodeTheme{
+        .background =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeBg, "#f8f9fa"_hex),
+        .titlebarBg = tm.getVariable<glm::vec4>(ThemeVarId::CodeTitlebarBg,
+                                                "#eceeef"_hex),
+        .border =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeBorder, "#dcdfe1"_hex),
+        .text = tm.getVariable<glm::vec4>(ThemeVarId::CodeText, "#26282b"_hex),
+        .keyword =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeKeyword, "#bf2680"_hex),
+        .typeName =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeType, "#0d73bf"_hex),
+        .stringLit =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeString, "#1a8c33"_hex),
+        .comment =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeComment, "#737a85"_hex),
+        .number =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeNumber, "#b3590d"_hex),
+        .symbol =
+            tm.getVariable<glm::vec4>(ThemeVarId::CodeSymbol, "#4d525c"_hex),
+    };
+  }
 };
 
 enum class TokenType {
@@ -303,18 +329,22 @@ inline glm::vec4 getTokenColor(TokenType type, const CodeTheme &theme) {
 
 /**
  * @brief Renders a syntax-highlighted code block component with macOS titlebar
- * & copy action.
- */
-/**
- * @brief Renders a syntax-highlighted code block component with macOS titlebar
- * & copy action. Uses an O(1) tokenization cache to prevent string allocations
- * per frame.
+ * & copy action. Uses ThemeManager enum tokens and global multipliers.
  */
 inline Interaction CodeBlock(const std::string &code,
                              const std::string &language,
                              Modifier &&modifier = Modifier{}) {
-  CodeTheme theme{};
+  auto &tm = ThemeManager::getInstance();
+  CodeTheme theme = CodeTheme::FetchCurrent();
   auto *uiState = getUiState();
+
+  // ⚡ ENUM O(1) LOOKUPS
+  float spacingMult =
+      tm.getVariable<float>(ThemeVarId::SpacingMultiplier, 1.0f);
+  float fontSizeMult =
+      tm.getVariable<float>(ThemeVarId::FontSizeMultiplier, 1.0f);
+  float borderRadiusMult =
+      tm.getVariable<float>(ThemeVarId::BorderRadiusMultiplier, 1.0f);
 
   const auto &style = modifier.getStyle();
   std::string baseId =
@@ -322,7 +352,6 @@ inline Interaction CodeBlock(const std::string &code,
           ? style.elementLabel.value()
           : ("CodeBlock_" + language + "_" + std::to_string(code.length()));
 
-  // Track copied state expiration per code block instance
   static std::unordered_map<std::string, std::chrono::steady_clock::time_point>
       s_copiedTimers;
 
@@ -333,16 +362,13 @@ inline Interaction CodeBlock(const std::string &code,
     auto elapsed =
         std::chrono::duration_cast<std::chrono::milliseconds>(now - it->second)
             .count();
-    if (elapsed < 1500) { // Show "Copied" state for 1.5 seconds
+    if (elapsed < 1500) {
       isCopied = true;
     } else {
       s_copiedTimers.erase(it);
     }
   }
 
-  // --------------------------------------------------------------------------
-  // Token Cache: Only tokenize code once per unique (code + language) hash
-  // --------------------------------------------------------------------------
   static std::unordered_map<size_t, std::vector<std::vector<Token>>>
       s_tokenCache;
   size_t codeHash = std::hash<std::string>{}(code + "___" + language);
@@ -375,13 +401,15 @@ inline Interaction CodeBlock(const std::string &code,
   const auto &cachedLines = cacheIt->second;
 
   Clay_ElementId blockId = utils::layout::getNextId(baseId.c_str());
-  glm::vec4 radius = style.borderRadius.value_or(glm::vec4(8.0f));
+  float themeRadius = tm.getVariable<float>(ThemeVarId::BorderRadiusLg, 8.0f);
+  glm::vec4 radius =
+      (style.borderRadius.value_or(glm::vec4(themeRadius))) * borderRadiusMult;
 
   Modifier blockStyle = std::move(modifier)
                             .column()
                             .background(theme.background)
                             .border(theme.border, 1.0f)
-                            .margin(0, 20)
+                            .margin(0, 20.0f * spacingMult)
                             .rounded(radius.x)
                             .widthGrow();
 
@@ -389,34 +417,30 @@ inline Interaction CodeBlock(const std::string &code,
     // 1. macOS Titlebar Header
     Div(Modifier()
             .background(theme.titlebarBg)
-            .padding(40, 12)
+            .padding(40.0f * spacingMult, 12.0f * spacingMult)
             .widthGrow()
             .center(),
         [&]() {
-          // Left Side: Window Traffic Lights & Language Title
           Div(Modifier()
                   .alignX(AlignmentX::SpaceBetween)
                   .alignY(AlignmentY::Center),
               [&]() {
-                // Red Dot
                 Div([]() {
                   Div(Modifier().size(12, 12).rounded(6.0f).background(
                       "#ff5f56"_hex));
-                  // Minimize (Yellow)
                   Div(Modifier().size(12, 12).rounded(6.0f).background(
                       "#ffbd2e"_hex));
-                  // Maximize (Green)
                   Div(Modifier().size(12, 12).rounded(6.0f).background(
                       "#27c93f"_hex));
                 });
                 Div(Modifier().widthGrow(), []() {});
                 std::string titleLabel = language.empty() ? "source" : language;
-                Text(titleLabel,
-                     Modifier().color(theme.comment).fontSize(12.0f));
+                Text(titleLabel, Modifier()
+                                     .color(theme.comment)
+                                     .fontSize(12.0f * fontSizeMult));
               });
           Div(Modifier().widthGrow(), []() {});
 
-          // Right Side: Action Button
           std::string copyBtnId = "copyBtn_" + baseId;
           atomicComponents::Toast(
               [&]() {
@@ -439,25 +463,32 @@ inline Interaction CodeBlock(const std::string &code,
               },
               [&]() {
                 Text(isCopied ? "Copied!" : "Copy To ClipBoard",
-                     Modifier().fontSize(10).color(Colors::gray[300]));
+                     Modifier()
+                         .fontSize(10.0f * fontSizeMult)
+                         .color(Colors::gray[300]));
               });
         });
 
-    // 2. Code Body Content (Render cached tokens)
-    Div(Modifier().column().padding(16, 20).widthGrow(), [&]() {
-      for (const auto &lineTokens : cachedLines) {
-        Div(Modifier().widthGrow(), [&]() {
-          if (lineTokens.empty()) {
-            Text("", Modifier().fontSize(13.0f));
-          } else {
-            for (const auto &token : lineTokens) {
-              glm::vec4 col = getTokenColor(token.type, theme);
-              Text(token.text, Modifier().color(col).fontSize(13.0f));
-            }
+    // 2. Code Body Content
+    Div(Modifier()
+            .column()
+            .padding(16.0f * spacingMult, 20.0f * spacingMult)
+            .widthGrow(),
+        [&]() {
+          for (const auto &lineTokens : cachedLines) {
+            Div(Modifier().widthGrow(), [&]() {
+              if (lineTokens.empty()) {
+                Text("", Modifier().fontSize(13.0f * fontSizeMult));
+              } else {
+                for (const auto &token : lineTokens) {
+                  glm::vec4 col = getTokenColor(token.type, theme);
+                  Text(token.text,
+                       Modifier().color(col).fontSize(13.0f * fontSizeMult));
+                }
+              }
+            });
           }
         });
-      }
-    });
   });
 
   bool isHovered = false;

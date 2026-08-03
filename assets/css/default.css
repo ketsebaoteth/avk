@@ -1,0 +1,179 @@
+/* ATOMIC DEFAULT SYSTEM DESIGN TOKENS                  */
+
+:root {
+  /* ----------------------------------------------------------------- */
+  /* 1. GLOBAL SYSTEM CONFIGURATION & MULTIPLIERS                      */
+  /* ----------------------------------------------------------------- */
+  --ui-animations: true;
+  --devtools-debug: false;
+  
+  /* Runtime Scale & Density Multipliers */
+  --scale-multiplier: 1.0;
+  --spacing-multiplier: 1.0;
+  --font-size-multiplier: 1.0;
+  --border-radius-multiplier: 1.0;
+  --border-width-multiplier: 1.0;
+  --transition-duration-multiplier: 1.0;
+
+  /* ----------------------------------------------------------------- */
+  /* 2. COLOR SYSTEM (Light Default Theme)                             */
+  /* ----------------------------------------------------------------- */
+  /* Backgrounds & Surfaces */
+  --color-bg-app: #f8f9fa;
+  --color-bg-surface: #ffffff;
+  --color-bg-surface-hover: #f3f4f6;
+  --color-bg-surface-active: #e5e7eb;
+  --color-bg-surface-disabled: #f5f5f5;
+
+  /* Primary & Accent Palettes */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-active: #1d4ed8;
+  --color-accent: #ff8000;
+  --color-transparent: rgba(0, 0, 0, 0.0);
+
+  /* Typography Colors */
+  --color-text-primary: #171717;      /* Colors::black[900] */
+  --color-text-secondary: #525252;
+  --color-text-tertiary: #737373;     /* Placeholder color */
+  --color-text-disabled: #a3a3a3;
+  --color-text-inverse: #ffffff;
+
+  /* Borders & Strokes */
+  --color-border-normal: #e5e5e5;     /* DEFAULT_BORDER_NORMAL */
+  --color-border-hover: #d4d4d4;
+  --color-border-focus: #3b82f6;
+  --color-border-disabled: #f5f5f5;
+
+  /* Input Special States & Caret */
+  --color-selection-bg: rgba(59, 130, 246, 0.35);  /* Selection Overlay */
+  --color-caret: #171717;
+
+  /* ----------------------------------------------------------------- */
+  /* 3. TYPOGRAPHY SYSTEM                                              */
+  /* ----------------------------------------------------------------- */
+  /* Font Sizes (Logical Scale) */
+  --font-size-3xs: 9px;
+  --font-size-2xs: 10px;
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;              /* Default Button / Input size */
+  --font-size-lg: 16px;              /* Default Text size */
+  --font-size-xl: 18px;
+  --font-size-2xl: 20px;
+  --font-size-3xl: 24px;
+  --font-size-4xl: 32px;
+
+  /* Font Weights */
+  --font-weight-light: 300;           /* Default Input weight */
+  --font-weight-regular: 400;         /* Default Body weight */
+  --font-weight-medium: 500;          /* Default Button weight */
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+
+  /* ----------------------------------------------------------------- */
+  /* 4. SPACING & PADDING TIERS                                        */
+  /* ----------------------------------------------------------------- */
+  --padding-3xs: 2px;
+  --padding-2xs: 4px;
+  --padding-xs: 6px;
+  --padding-sm: 8px;                 /* Input Vertical Padding */
+  --padding-md: 10px;                /* Input Horizontal Padding */
+  --padding-lg: 12px;
+  --padding-xl: 14px;                /* Button Vertical Padding */
+  --padding-2xl: 16px;               /* Button Horizontal Padding */
+  --padding-3xl: 20px;
+  --padding-4xl: 24px;
+  --padding-5xl: 32px;
+
+  /* Layout Child Gaps */
+  --gap-3xs: 2px;
+  --gap-2xs: 4px;
+  --gap-xs: 6px;
+  --gap-sm: 8px;
+  --gap-md: 12px;
+  --gap-lg: 16px;
+  --gap-xl: 20px;
+
+  /* Margins */
+  --margin-xs: 4px;
+  --margin-sm: 8px;
+  --margin-md: 12px;
+  --margin-lg: 16px;
+  --margin-xl: 24px;
+
+  /* ----------------------------------------------------------------- */
+  /* 5. BORDERS & SHAPES                                               */
+  /* ----------------------------------------------------------------- */
+  /* Border Radii */
+  --border-radius-none: 0px;
+  --border-radius-xs: 2px;
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 10px;          /* Default Button & Input radius */
+  --border-radius-xl: 16px;
+  --border-radius-full: 9999px;
+
+  /* Border Thickness / Stroke */
+  --border-width-none: 0px;
+  --border-width-thin: 1px;          /* Normal Border */
+  --border-width-active: 1.5px;       /* Focus Border */
+  --border-width-thick: 2px;
+
+  /* ----------------------------------------------------------------- */
+  /* 6. COMPONENT-SPECIFIC DEFAULT OVERRIDES                           */
+  /* ----------------------------------------------------------------- */
+  /* TextInput Metrics */
+  --text-input-height: 42px;         /* Default height constraint */
+  --text-input-pad-x: 12px;
+  --text-input-pad-y: 8px;
+  --text-input-font-size: 14px;
+  --text-input-caret-width: 2px;
+
+  /* Button Metrics */
+  --button-pad-x: 16px;
+  --button-pad-y: 14px;
+  --button-font-size: 14px;
+  --button-font-weight: 500;
+
+  /* ----------------------------------------------------------------- */
+  /* 7. MOTION & TRANSITIONS                                           */
+  /* ----------------------------------------------------------------- */
+  --transition-duration-fast: 0.10s;
+  --transition-duration-normal: 0.15s;/* Button default transition */
+  --transition-duration-slow: 0.20s;  /* TextInput default transition */
+  --transition-duration-slowest: 0.35s;
+}
+
+/* =================================================================== */
+/* SUB-THEME OVERRIDES: DARK MODE                                      */
+/* =================================================================== */
+/* 
+   Sub-themes inherit structural metrics (--padding-*, --font-size-*)
+   from :root and only override specific values (mostly colors).
+*/
+dark {
+  /* Surface & Background Overrides */
+  --color-bg-app: #0d0f12;
+  --color-bg-surface: #17191e;
+  --color-bg-surface-hover: #22252c;
+  --color-bg-surface-active: #2c303a;
+  --color-bg-surface-disabled: #121417;
+
+  /* Typography Overrides */
+  --color-text-primary: #f5f5f5;
+  --color-text-secondary: #a3a3a3;
+  --color-text-tertiary: #737373;
+  --color-text-disabled: #525252;
+  --color-text-inverse: #171717;
+
+  /* Border & State Overrides */
+  --color-border-normal: #2a2d36;
+  --color-border-hover: #3a3f4d;
+  --color-border-focus: #3b82f6;
+  --color-border-disabled: #1f2228;
+
+  /* Input Caret & Selection Overrides */
+  --color-selection-bg: rgba(59, 130, 246, 0.45);
+  --color-caret: #f5f5f5;
+}

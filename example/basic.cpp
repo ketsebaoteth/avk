@@ -119,8 +119,8 @@ void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
                               .fontSize(50)
                               .fontWeight(600)
                               .color("#000000"_hex));
-          TextInput(searchInput, "search ...",
-                    Modifier().id("searchField").width(500));
+          TextInput(Modifier().id("searchField").width(500), searchInput,
+                    "search ...");
 
           Div(Modifier().column().heightGrow().widthGrow().padding(5, 50),
               [&]() {

@@ -115,9 +115,15 @@ void endFrame(VeraWindow *window) {
   [[maybe_unused]] Clay_BoundingBox *currentClip = nullptr;
   uint32_t currentFrameDrawCalls = 0; // Submitted instance counter
 
+  // ⚡ Fast-path pivot transform when scale=1, rotation=0, translate=0
   auto getPivotTransformedCoords = [](const Clay_BoundingBox &box, float scale,
                                       float rotation, const glm::vec2 &origin,
                                       const glm::vec2 &translate) -> glm::vec4 {
+    if (rotation == 0.0f && scale == 1.0f && translate.x == 0.0f &&
+        translate.y == 0.0f) {
+      return glm::vec4(box.x, box.y, box.width, box.height);
+    }
+
     glm::vec2 pos(box.x + translate.x, box.y + translate.y);
     glm::vec2 size(box.width, box.height);
 
@@ -164,10 +170,6 @@ void endFrame(VeraWindow *window) {
       activeClipRect = glm::vec4(-10000.0f, -10000.0f, 200000.0f, 200000.0f);
     }
 
-    // ------------------------------------------------------------------------
-    // Scissor Viewport Frustum Culling (64px margin for shadows & ascenders)
-    // Skips HarfBuzz shaping and GPU instance submission for off-screen items
-    // ------------------------------------------------------------------------
     if (hasActiveClip) {
       constexpr float CULL_MARGIN = 64.0f;
       const auto &box = cmd->boundingBox;
@@ -200,6 +202,13 @@ void endFrame(VeraWindow *window) {
         translate = payload->translate;
         shadows = payload->boxShadows;
         elementGradient = payload->gradient;
+      }
+
+      // ⚡ CPU CULLING: Skip completely transparent rectangles without
+      // gradients or shadows
+      if (rectData->backgroundColor.a == 0 && !elementGradient.has_value() &&
+          shadows.empty()) {
+        continue;
       }
 
       auto submitShadow = [&](const BoxShadow &s) {
@@ -277,6 +286,28 @@ void endFrame(VeraWindow *window) {
       mainInstance.shapeType = 0;
       mainInstance.fillType = 0;
 
+      // ⚡ COMMAND MERGING: Merge next Clay BORDER command into mainInstance
+      if (i + 1 < renderCommands.length) {
+        Clay_RenderCommand *nextCmd =
+            Clay_RenderCommandArray_Get(&renderCommands, i + 1);
+        if (nextCmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
+          Clay_BorderRenderData *bData = &nextCmd->renderData.border;
+          if (bData->width.top > 0 || bData->width.right > 0 ||
+              bData->width.bottom > 0 || bData->width.left > 0) {
+
+            mainInstance.strokeThickness =
+                glm::vec4(bData->width.top, bData->width.right,
+                          bData->width.bottom, bData->width.left);
+            mainInstance.strokeColor =
+                glm::vec4(bData->color.r / 255.0f, bData->color.g / 255.0f,
+                          bData->color.b / 255.0f, bData->color.a / 255.0f);
+
+            // Consume nextCmd so it isn't rendered as a 2nd quad!
+            i++;
+          }
+        }
+      }
+
       if (elementGradient.has_value() &&
           elementGradient->type != GradientType::Disabled) {
         const auto &g = elementGradient.value();
@@ -330,6 +361,13 @@ void endFrame(VeraWindow *window) {
       }
     } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_BORDER) {
       Clay_BorderRenderData *borderData = &cmd->renderData.border;
+
+      // ⚡ CPU CULLING: Skip 0-width or 0-alpha borders
+      if ((borderData->width.top == 0 && borderData->width.right == 0 &&
+           borderData->width.bottom == 0 && borderData->width.left == 0) ||
+          borderData->color.a == 0) {
+        continue;
+      }
 
       float elementScale = 1.0f;
       float elementRotation = 0.0f;
@@ -526,9 +564,7 @@ void endFrame(VeraWindow *window) {
           submitImageShadow(s);
         }
       }
-    }
-
-    else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
+    } else if (cmd->commandType == CLAY_RENDER_COMMAND_TYPE_TEXT) {
       Clay_TextRenderData *textData = &cmd->renderData.text;
 
       if (textData->fontId >= uiState->fonts.size()) {
@@ -597,7 +633,6 @@ void endFrame(VeraWindow *window) {
 
       glm::vec2 position(renderBox.x, renderBox.y);
 
-      // Submit fully-customized CSS text layout
       auto instances = font.layoutText(
           textStr, position, renderBox, textColor, fontSize, letterSpacing,
           fontWeight, activeClipRect, elementScale, elementRotation,
@@ -612,23 +647,10 @@ void endFrame(VeraWindow *window) {
 
   session->canvas->endFrame(*uiState->renderer);
 
-  // Record total submitted instance draw calls for frame metrics
   uiState->drawCalls = currentFrameDrawCalls;
-
-  /**
-   * @brief 1. Wipe transient payload memory safely.
-   */
   uiState->framePayloads.clear();
-
-  /**
-   * @brief 2. Run non-destructive MotionManager garbage collection for
-   * unmounted element states.
-   */
   uiState->motionManager.gc();
 
-  /**
-   * @brief 3. Reset per-frame input states.
-   */
   uiState->capturedChars.clear();
   uiState->backspacePressed = false;
   uiState->enterPressed = false;

@@ -16,7 +16,7 @@ namespace atomic {
  * states, and style cascading.
  */
 Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
-                   const std::vector<std::string> &options, uint32_t fontId,
+                   const std::vector<std::string> &options,
                    DropdownPlacement placement) {
   Interaction result{};
   if (options.empty())
@@ -88,7 +88,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
 
   Div(std::move(headerStyle), [&]() {
     Div(Modifier().row().gap(10).center(), [&]() {
-      Text(options[selectedIndex], fontId, Modifier().color(Colors::white));
+      Text(options[selectedIndex], Modifier().color(Colors::white));
       Image(Modifier().size(12.0f, 12.0f), chevronTex,
             glm::vec4(1.0f, 1.0f, 1.0f, chevronAlpha));
     });
@@ -189,7 +189,7 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
                                 .row();
 
         Div(std::move(optStyle), [&]() {
-          Text(options[i], fontId,
+          Text(options[i],
                Modifier().color(
                    isSelected ? glm::vec4(1.0f, 1.0f, 1.0f, contentAlpha)
                               : glm::vec4(0.80f, 0.80f, 0.82f, contentAlpha)));
@@ -214,13 +214,6 @@ Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
   result.changed = selectionChanged;
 
   return result;
-}
-
-Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
-                   const std::vector<std::string> &options,
-                   DropdownPlacement placement) {
-  return Select(std::move(modifier), isOpen, selectedIndex, options,
-                getDefaultFontId(), placement);
 }
 
 } // namespace atomic

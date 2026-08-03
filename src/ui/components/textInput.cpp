@@ -227,8 +227,8 @@ uint32_t findWhereCursorLanded(const std::string &displayString,
 namespace atomic {
 
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
-                      const std::string &placeholder, const TextConfig &config,
-                      uint32_t fontId) {
+                      const std::string &placeholder,
+                      const TextConfig &config) {
   auto *uiState = getUiState();
   CascadingStyle inherited =
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
@@ -307,6 +307,7 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
   uint16_t padL = finalStyle.padLeft.value_or(12);
   uint16_t padR = finalStyle.padRight.value_or(12);
 
+  auto fontId = getActiveFont();
   avk::Font *font = getFont(fontId != 0 ? fontId : getDefaultFontId());
 
   auto &inputState = uiState->inputStateMap[elementId];
@@ -693,12 +694,11 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
           textBuffer.empty() ? placeholder : displayString;
       glm::vec4 finalTextColor = textBuffer.empty() ? "#737373"_hex : textColor;
 
-      Text(textToRender, fontId,
-           Modifier()
-               .color(finalTextColor)
-               .fontSize(logicalFontSize)
-               .fontWeight(fontWeight)
-               .translate(-inputState.scrollX, 0.0f));
+      Text(textToRender, Modifier()
+                             .color(finalTextColor)
+                             .fontSize(logicalFontSize)
+                             .fontWeight(fontWeight)
+                             .translate(-inputState.scrollX, 0.0f));
     }
 
     // 2. RENDER SELECTION BOX SECOND (On Top with Opacity)
@@ -808,9 +808,8 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
             .left(uiState->pointerPos.x + 25.0f)
             .top(uiState->pointerPos.y + 25.0f),
         [&]() {
-          Text(draggedSlice, fontId,
-               Modifier().color(textColor).opacity(0.5).fontSize(
-                   logicalFontSize));
+          Text(draggedSlice, Modifier().color(textColor).opacity(0.5).fontSize(
+                                 logicalFontSize));
         });
   }
 
@@ -829,15 +828,8 @@ Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
 }
 
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
-                      const std::string &placeholder, uint32_t fontId) {
-  return TextInput(std::move(modifier), textBuffer, placeholder, TextConfig{},
-                   fontId);
-}
-
-Interaction TextInput(std::string &textBuffer, const std::string &placeholder,
-                      Modifier &&modifier) {
-  return TextInput(std::move(modifier), textBuffer, placeholder, TextConfig{},
-                   getDefaultFontId());
+                      const std::string &placeholder) {
+  return TextInput(std::move(modifier), textBuffer, placeholder, TextConfig{});
 }
 
 } // namespace atomic

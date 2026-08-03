@@ -4,6 +4,7 @@
 #include "ui/components.h"
 #include "ui/internal/cascadingStyle.h"
 #include "ui/motion/AtomicMotion.h"
+#include "ui/style/themeManager.h"
 
 #include <cmath>
 #include <unordered_map>
@@ -12,12 +13,22 @@ namespace atomic {
 
 /**
  * @brief Core universal layout primitive managing flex direction, margins,
- * transitions, style cascading, and transform/translation offsets backed by
- * atomic::motion.
+ * transitions, style cascading, theme scaling, and transform/translation
+ * offsets.
  */
 Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   const auto &rawStyle = modifier.getStyle();
   auto *uiState = getUiState();
+  auto &tm = ThemeManager::getInstance();
+
+  // ⚡ ENUM O(1) LOOKUPS
+  float spacingMult =
+      tm.getVariable<float>(ThemeVarId::SpacingMultiplier, 1.0f);
+  float borderRadiusMult =
+      tm.getVariable<float>(ThemeVarId::BorderRadiusMultiplier, 1.0f);
+  float borderWidthMult =
+      tm.getVariable<float>(ThemeVarId::BorderWidthMultiplier, 1.0f);
+
   Clay_ElementId divId =
       rawStyle.elementLabel.has_value()
           ? utils::layout::getNextId(rawStyle.elementLabel.value().c_str())
@@ -31,10 +42,10 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   outerId.id += 0x6D417267;
   if (hasMargin) {
     Clay__OpenElementWithId(outerId);
-    float ml = style.marginLeft.value_or(0.0f);
-    float mr = style.marginRight.value_or(0.0f);
-    float mt = style.marginTop.value_or(0.0f);
-    float mb = style.marginBottom.value_or(0.0f);
+    float ml = style.marginLeft.value_or(0.0f) * spacingMult;
+    float mr = style.marginRight.value_or(0.0f) * spacingMult;
+    float mt = style.marginTop.value_or(0.0f) * spacingMult;
+    float mb = style.marginBottom.value_or(0.0f) * spacingMult;
     Clay_ElementDeclaration outerDecl{};
     utils::layout::applyStyleToLayout(outerDecl, style);
     outerDecl.layout.padding = {static_cast<uint16_t>(std::round(ml)),
@@ -51,13 +62,27 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
       uiState ? uiState->getActiveCascadingStyle() : CascadingStyle{};
   float effectiveOpacity =
       inherited.inheritedOpacity * style.opacity.value_or(1.0f);
+
+  glm::vec4 themeBg =
+      tm.getVariable<glm::vec4>(ThemeVarId::ColorBgSurface, glm::vec4(0.0f));
   glm::vec4 bg = style.backgroundColor.value_or(
-      style.gradient.has_value() ? glm::vec4(1.0f) : glm::vec4(0.0f));
+      style.gradient.has_value() ? glm::vec4(1.0f) : themeBg);
   bg.a *= effectiveOpacity;
-  glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
-  glm::vec4 strokeColor = style.strokeColor.value_or(DEFAULT_BORDER_NORMAL);
+
+  glm::vec4 themeRadius =
+      glm::vec4(tm.getVariable<float>(ThemeVarId::BorderRadiusLg, 0.0f));
+  glm::vec4 radius =
+      (style.borderRadius.value_or(themeRadius)) * borderRadiusMult;
+
+  glm::vec4 themeBorderColor = tm.getVariable<glm::vec4>(
+      ThemeVarId::ColorBorderNormal, DEFAULT_BORDER_NORMAL);
+  glm::vec4 strokeColor = style.strokeColor.value_or(themeBorderColor);
   strokeColor.a *= effectiveOpacity;
-  glm::vec4 strokeWidth = style.strokeThickness.value_or(glm::vec4(0.0f));
+
+  glm::vec4 themeBorderWidth =
+      glm::vec4(tm.getVariable<float>(ThemeVarId::BorderWidthNone, 0.0f));
+  glm::vec4 strokeWidth =
+      (style.strokeThickness.value_or(themeBorderWidth)) * borderWidthMult;
 
   LayoutDirection dir = style.direction.value_or(LayoutDirection::Row);
   Clay_LayoutDirection clayDir = (dir == LayoutDirection::Column)
@@ -84,16 +109,17 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   }
   utils::layout::applyStyleToLayout(decl, innerStyle);
 
-  const float padL = style.padLeft.value_or(0.0f);
-  const float padR = style.padRight.value_or(0.0f);
-  const float padT = style.padTop.value_or(0.0f);
-  const float padB = style.padBottom.value_or(0.0f);
+  const float padL = style.padLeft.value_or(0.0f) * spacingMult;
+  const float padR = style.padRight.value_or(0.0f) * spacingMult;
+  const float padT = style.padTop.value_or(0.0f) * spacingMult;
+  const float padB = style.padBottom.value_or(0.0f) * spacingMult;
 
   decl.layout.padding = {static_cast<uint16_t>(std::round(padL)),
                          static_cast<uint16_t>(std::round(padR)),
                          static_cast<uint16_t>(std::round(padT)),
                          static_cast<uint16_t>(std::round(padB))};
-  decl.layout.childGap = static_cast<uint16_t>(style.childGap.value_or(0.0f));
+  decl.layout.childGap = static_cast<uint16_t>(
+      std::round(style.childGap.value_or(0.0f) * spacingMult));
   decl.layout.childAlignment = {.x = clayAlignX, .y = clayAlignY};
   decl.layout.layoutDirection = clayDir;
   decl.backgroundColor = {bg.r * 255.0f, bg.g * 255.0f, bg.b * 255.0f,
@@ -115,25 +141,18 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   decl.userData = utils::layout::createFramePayload(style);
   Clay__ConfigureOpenElement(decl);
 
-  // -------------------------------------------------------------------------
-  // Text measure constraint: available content width for children
-  // Fixed width  -> that width minus horizontal padding
-  // Grow (0)     -> inherit parent constraint, minus our padding
-  // Unset width  -> same inherit path (children can still wrap to parent)
-  // -------------------------------------------------------------------------
   bool pushedTextConstraint = false;
   if (uiState) {
     float constraintW = 0.0f;
 
     const bool hasWidth = style.width.has_value();
-    const float rawW = hasWidth ? style.width.value() : -1.0f; // -1 = unset
+    const float rawW = hasWidth ? style.width.value() : -1.0f;
     const bool isGrow = hasWidth && rawW == 0.0f;
     const bool isFixed = hasWidth && rawW > 0.0f;
 
     if (isFixed) {
-      constraintW = rawW - padL - padR;
+      constraintW = (rawW * spacingMult) - padL - padR;
     } else if (isGrow || !hasWidth) {
-      // Grow or auto: use parent content width if we have one
       if (!uiState->textConstraintWidthStack.empty()) {
         constraintW = uiState->textConstraintWidthStack.back() - padL - padR;
       }
@@ -163,7 +182,8 @@ Interaction Div(Modifier &&modifier, const std::function<void()> &content) {
   if (clayHovered) {
     Clay_ElementData elementData = Clay_GetElementData(divId);
     if (elementData.found) {
-      glm::vec2 translation = style.translate.value_or(glm::vec2(0.0f));
+      glm::vec2 translation =
+          style.translate.value_or(glm::vec2(0.0f)) * spacingMult;
       Clay_BoundingBox hitBox = elementData.boundingBox;
       hitBox.x += translation.x;
       hitBox.y += translation.y;

@@ -1,12 +1,27 @@
-#include "avk/utils/vkdebug.h"
-#include "core/app/Types.h"
 #if defined(VERA_PLATFORM_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#elif defined(VERA_PLATFORM_LINUX)
+#ifndef VK_USE_PLATFORM_WAYLAND_KHR
+#define VK_USE_PLATFORM_WAYLAND_KHR
+#endif
+#ifndef VK_USE_PLATFORM_XLIB_KHR
+#define VK_USE_PLATFORM_XLIB_KHR
+#endif
+#ifndef VK_USE_PLATFORM_XCB_KHR
+#define VK_USE_PLATFORM_XCB_KHR
+#endif
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <wayland-client.h>
+#include <xcb/xcb.h>
 #endif
 
 #include "avk/avk_allocator.h"
 #include "avk/avk_core.h"
+#include "avk/utils/vkdebug.h"
+#include "core/app/Types.h"
+
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -58,8 +73,6 @@ VulkanContext::VulkanContext(std::optional<VeraNativeHandle> nativeDisplay,
 
     if (vkAllocateCommandBuffers(m_device, &tracyAllocInfo,
                                  &m_tracyCommandBuffer) == VK_SUCCESS) {
-      // TracyVkContext internal calibration recordings run on
-      // m_tracyCommandBuffer
       m_tracyVkCtx = TracyVkContext(m_physicalDevice, m_device, m_graphicsQueue,
                                     m_tracyCommandBuffer);
     }
@@ -193,7 +206,6 @@ bool VulkanContext::createInstance(bool enableValidation) {
   appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
   appInfo.apiVersion = VK_API_VERSION_1_3;
 
-  // 1. Query available instance extensions supported by Driver / RenderDoc
   uint32_t extensionCount = 0;
   vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr);
   std::vector<VkExtensionProperties> availableExtensions(extensionCount);
@@ -218,7 +230,6 @@ bool VulkanContext::createInstance(bool enableValidation) {
     extensions.push_back("VK_KHR_win32_surface");
   }
 #elif defined(VERA_PLATFORM_LINUX)
-  // Only push surface extensions actually exposed by the active environment
   if (isExtensionSupported("VK_KHR_wayland_surface")) {
     extensions.push_back("VK_KHR_wayland_surface");
   }
@@ -230,7 +241,6 @@ bool VulkanContext::createInstance(bool enableValidation) {
   }
 #endif
 
-  // 2. Query available validation layers
   uint32_t layerCount = 0;
   vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
   std::vector<VkLayerProperties> availableLayers(layerCount);
@@ -307,6 +317,10 @@ bool VulkanContext::selectPhysicalDevice() {
   std::vector<VkPhysicalDevice> devices(deviceCount);
   vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
 
+  VkPhysicalDevice bestDevice = VK_NULL_HANDLE;
+  QueueFamilyIndices bestIndices;
+  int highestScore = -1;
+
   for (const auto &device : devices) {
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
@@ -333,22 +347,44 @@ bool VulkanContext::selectPhysicalDevice() {
       }
 
       if (indices.isComplete()) {
-        m_physicalDevice = device;
-        m_queueFamilies = indices;
         break;
       }
     }
 
-    if (m_physicalDevice != VK_NULL_HANDLE) {
-      break;
+    if (!indices.isComplete()) {
+      continue;
+    }
+
+    int score = 0;
+
+    if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+      score += 10000;
+    } else if (deviceProperties.deviceType ==
+               VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+      score += 1000;
+    }
+
+    if (deviceProperties.vendorID == 0x10DE) { // NVIDIA
+      score += 5000;
+    } else if (deviceProperties.vendorID == 0x1002) { // AMD
+      score += 4000;
+    }
+
+    if (score > highestScore) {
+      highestScore = score;
+      bestDevice = device;
+      bestIndices = indices;
     }
   }
 
-  if (m_physicalDevice == VK_NULL_HANDLE) {
+  if (bestDevice == VK_NULL_HANDLE) {
     std::cerr << "avk: Failed to find a suitable GPU with presentation support."
               << std::endl;
     return false;
   }
+
+  m_physicalDevice = bestDevice;
+  m_queueFamilies = bestIndices;
 
   return true;
 }
@@ -373,18 +409,13 @@ bool VulkanContext::createLogicalDevice() {
     queueCreateInfos.push_back(presentQueueCreateInfo);
   }
 
-  // 1. Explicitly request Vulkan 1.2 Bindless Descriptor Indexing hardware
-  // capabilities
   VkPhysicalDeviceVulkan12Features features12{};
   features12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
   features12.descriptorBindingPartiallyBound = VK_TRUE;
   features12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
   features12.runtimeDescriptorArray = VK_TRUE;
-  features12.shaderSampledImageArrayNonUniformIndexing =
-      VK_TRUE; // Enabled for nonuniformEXT in GLSL
+  features12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
 
-  // 2. Request Vulkan 1.3 Dynamic Rendering, linking to the Vulkan 1.2
-  // feature chain
   VkPhysicalDeviceVulkan13Features features13{};
   features13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
   features13.dynamicRendering = VK_TRUE;
@@ -423,16 +454,10 @@ bool VulkanContext::createLogicalDevice() {
   return true;
 }
 
-#if defined(VERA_PLATFORM_LINUX)
-#include <X11/Xlib.h>
-#include <X11/Xutil.h>
-#include <wayland-client.h>
-#include <xcb/xcb.h>
-#endif
-
 bool VulkanContext::checkPresentationSupport(
-    VkPhysicalDevice physicalDevice, uint32_t queueFamilyIndex,
-    std::optional<VeraNativeHandle> nativeHandle) {
+    [[maybe_unused]] VkPhysicalDevice physicalDevice,
+    [[maybe_unused]] uint32_t queueFamilyIndex,
+    [[maybe_unused]] std::optional<VeraNativeHandle> nativeHandle) {
 #if defined(VERA_PLATFORM_WIN32)
   return vkGetPhysicalDeviceWin32PresentationSupportKHR(
              physicalDevice, queueFamilyIndex) == VK_TRUE;
@@ -440,7 +465,8 @@ bool VulkanContext::checkPresentationSupport(
 #elif defined(VERA_PLATFORM_LINUX)
 
 #if defined(VK_USE_PLATFORM_WAYLAND_KHR)
-  if (vkGetPhysicalDeviceWaylandPresentationSupportKHR != nullptr) {
+  if (vkGetPhysicalDeviceWaylandPresentationSupportKHR != nullptr &&
+      nativeHandle.has_value()) {
     if (vkGetPhysicalDeviceWaylandPresentationSupportKHR(
             physicalDevice, queueFamilyIndex,
             reinterpret_cast<struct ::wl_display *>(nativeHandle->display)) ==
@@ -451,7 +477,8 @@ bool VulkanContext::checkPresentationSupport(
 #endif
 
 #if defined(VK_USE_PLATFORM_XLIB_KHR)
-  if (vkGetPhysicalDeviceXlibPresentationSupportKHR != nullptr) {
+  if (vkGetPhysicalDeviceXlibPresentationSupportKHR != nullptr &&
+      nativeHandle.has_value()) {
     auto *xlibDisplay = static_cast<Display *>(nativeHandle->display);
     if (xlibDisplay != nullptr) {
       VisualID visualId = XVisualIDFromVisual(
@@ -465,10 +492,11 @@ bool VulkanContext::checkPresentationSupport(
   }
 #endif
 
-  // 3. X11 via XCB Fallback Check
 #if defined(VK_USE_PLATFORM_XCB_KHR)
-  if (vkGetPhysicalDeviceXcbPresentationSupportKHR != nullptr) {
-    auto *xcbConnection = static_cast<xcb_connection_t *>(nativeDisplay);
+  if (vkGetPhysicalDeviceXcbPresentationSupportKHR != nullptr &&
+      nativeHandle.has_value()) {
+    auto *xcbConnection =
+        static_cast<xcb_connection_t *>(nativeHandle->display);
     xcb_visualid_t xcbVisualId = 0;
     if (vkGetPhysicalDeviceXcbPresentationSupportKHR(
             physicalDevice, queueFamilyIndex, xcbConnection, xcbVisualId) ==

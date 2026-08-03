@@ -3,7 +3,9 @@
 #include "clay.h"
 #include "core/app/App.h"
 #include "core/app/Types.h"
+#include "ui/components.h"
 #include "ui/core/resources.h"
+#include "ui/style/themeManager.h"
 #include "ui/utils/clayUtils.h"
 #include <iostream>
 #include <memory>
@@ -15,6 +17,7 @@ std::unique_ptr<UIState> g_uiState = nullptr;
 VeraApp *g_veraApp = nullptr;
 [[maybe_unused]] static void *g_clayArenaMemory = nullptr;
 uint32_t g_elementIdCounter = 0;
+uint32_t g_activeFontId = INVALID_FONT_ID;
 } // namespace
 
 void resetGlobalIdCounter() { g_elementIdCounter = 0; };
@@ -53,6 +56,7 @@ void initialize(VeraApp &veraAppPtr,
   std::string defaultMetrics =
       std::string(AVK_GENERATED_FONTS_DIR) + "/Roboto-Regular_metrics.csv";
   g_uiState->defaultFontId = loadFont(robotoTtf, defaultAtlas, defaultMetrics);
+  SetActiveFont(g_uiState->defaultFontId);
 
   // 2. Load Single MSDF Vector Font for Icons (Lucide)
   std::string lucideTtf = getPath("fonts/lucide.ttf");
@@ -63,12 +67,9 @@ void initialize(VeraApp &veraAppPtr,
   g_uiState->defaultIconFontIds[0] =
       loadFont(lucideTtf, lucideAtlas, lucideMetrics);
 
-  // ✅ CLEAR CLAY'S WORD MEASUREMENT CACHE AFTER FONTS ARE LOADED
   Clay_ResetMeasureTextCache();
-
-  std::println(
-      "[atomicUI]: Default Inter MSDF Font loaded successfully with ID: {}",
-      g_uiState->defaultFontId);
+  // load default theme
+  ThemeManager::getInstance().loadThemesFromCss(getPath("css/default.css"));
 }
 
 void shutdown() {
@@ -225,4 +226,6 @@ void unregisterWindow(VeraWindow *window) {
 
 uint32_t getDefaultFontId() { return g_uiState ? g_uiState->defaultFontId : 0; }
 
+uint32_t getActiveFont() { return g_activeFontId; };
+void SetActiveFont(uint32_t fontid) { g_activeFontId = fontid; };
 } // namespace atomic

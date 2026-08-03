@@ -61,7 +61,7 @@ void PipelineCache::release() {
   if (device == VK_NULL_HANDLE)
     return;
 
-  for (auto &[format, pipeline] : m_pipelines) {
+  for (auto &[key, pipeline] : m_pipelines) {
     vkDestroyPipeline(device, pipeline, nullptr);
   }
   m_pipelines.clear();
@@ -72,25 +72,29 @@ void PipelineCache::release() {
   }
 }
 
-VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat) {
-  auto it = m_pipelines.find(colorFormat);
+VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat,
+                                              PipelineType type) {
+  PipelineKey key{colorFormat, type};
+  auto it = m_pipelines.find(key);
   if (it != m_pipelines.end()) {
     return it->second;
   }
 
   VkDevice device = m_context->getDevice();
 
-  // Load compiled shader files from the CMake configured binary directory
+  // Load compiled vertex & specialized fragment shaders from binary directory
   std::string vertPath = std::string(AVK_SHADER_BINARY_DIR) + "/ui.vert.spv";
-  std::string fragPath = std::string(AVK_SHADER_BINARY_DIR) + "/ui.frag.spv";
+  std::string fragPath = std::string(AVK_SHADER_BINARY_DIR) +
+                         ((type == PipelineType::Text) ? "/ui_text.frag.spv"
+                                                       : "/ui_shape.frag.spv");
 
   VkShaderModule vertModule = loadShaderModule(vertPath);
   VkShaderModule fragModule = loadShaderModule(fragPath);
 
   if (vertModule == VK_NULL_HANDLE || fragModule == VK_NULL_HANDLE) {
     std::cerr << "avk: Failed to compile graphics pipeline due to missing "
-                 "shader assets."
-              << std::endl;
+                 "shader assets: "
+              << fragPath << std::endl;
     return VK_NULL_HANDLE;
   }
 
@@ -223,7 +227,8 @@ VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat) {
   VkPipeline pipeline = VK_NULL_HANDLE;
   if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo,
                                 nullptr, &pipeline) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to compile graphics pipeline." << std::endl;
+    std::cerr << "avk: Failed to compile graphics pipeline for type "
+              << static_cast<int>(type) << std::endl;
     pipeline = VK_NULL_HANDLE;
   }
 
@@ -231,7 +236,7 @@ VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat) {
   vkDestroyShaderModule(device, fragModule, nullptr);
 
   if (pipeline != VK_NULL_HANDLE) {
-    m_pipelines[colorFormat] = pipeline;
+    m_pipelines[key] = pipeline;
   }
 
   return pipeline;

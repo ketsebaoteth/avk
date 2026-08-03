@@ -20,11 +20,6 @@ Renderer::Renderer(VulkanContext *context) : m_context(context) {
 
   buildQuadBuffer();
 
-  // --------------------------------------------------------------------------
-  // TRIPLE-BUFFERED INSTANCE MEMORY (Eliminates CPU-GPU Write Races)
-  // Allocated in VMA_MEMORY_USAGE_AUTO with Host Sequential Write Bit
-  // (Utilizes PCIe Resizable BAR Device-Local Memory on modern GPUs)
-  // --------------------------------------------------------------------------
   constexpr uint32_t FRAMES_IN_FLIGHT = 3;
   VkDeviceSize singleFrameSize = sizeof(InstanceData) * m_maxInstances;
   VkDeviceSize totalBufferSize = singleFrameSize * FRAMES_IN_FLIGHT;
@@ -90,11 +85,6 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
 
   m_frameIndex++;
 
-  VkPipeline pipeline = m_pipelineCache->getOrCreatePipeline(targetFormat);
-  if (pipeline == VK_NULL_HANDLE) {
-    return;
-  }
-
   // Configure dynamic rendering attachment
   VkRenderingAttachmentInfo colorAttachmentInfo{};
   colorAttachmentInfo.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
@@ -122,8 +112,7 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
   }
 #endif
 
-  // Bind Pipeline & Bindless Descriptor Set
-  vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  // Bindless Descriptor Set
   VkDescriptorSet bindlessSet =
       m_context->getTextureManager()->getDescriptorSet();
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -158,8 +147,48 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
   VkDeviceSize instanceOffsets[] = {currentFrameOffset};
   vkCmdBindVertexBuffers(cmd, 1, 1, instanceBuffers, instanceOffsets);
 
-  // Draw Call
-  vkCmdDraw(cmd, 6, static_cast<uint32_t>(m_drawQueue.size()), 0, 0);
+  // -------------------------------------------------------------------------
+  // ⚡ DYNAMIC PIPELINE SWITCHING (Eliminates GPU Warp Divergence)
+  // -------------------------------------------------------------------------
+  uint32_t batchStart = 0;
+  PipelineType currentType =
+      (m_drawQueue[0].fillType == 3) ? PipelineType::Text : PipelineType::Shape;
+  VkPipeline currentPipeline =
+      m_pipelineCache->getOrCreatePipeline(targetFormat, currentType);
+
+  if (currentPipeline != VK_NULL_HANDLE) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline);
+  }
+
+  uint32_t totalInstances = static_cast<uint32_t>(m_drawQueue.size());
+
+  for (uint32_t i = 0; i < totalInstances; ++i) {
+    PipelineType instanceType = (m_drawQueue[i].fillType == 3)
+                                    ? PipelineType::Text
+                                    : PipelineType::Shape;
+
+    if (instanceType != currentType) {
+      uint32_t batchCount = i - batchStart;
+      if (batchCount > 0 && currentPipeline != VK_NULL_HANDLE) {
+        vkCmdDraw(cmd, 6, batchCount, 0, batchStart);
+      }
+
+      currentType = instanceType;
+      currentPipeline =
+          m_pipelineCache->getOrCreatePipeline(targetFormat, currentType);
+      if (currentPipeline != VK_NULL_HANDLE) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                          currentPipeline);
+      }
+      batchStart = i;
+    }
+  }
+
+  // Flush remaining batch
+  uint32_t remainingCount = totalInstances - batchStart;
+  if (remainingCount > 0 && currentPipeline != VK_NULL_HANDLE) {
+    vkCmdDraw(cmd, 6, remainingCount, 0, batchStart);
+  }
 
   // =========================================================================
   // END Dynamic Rendering Pass
@@ -167,7 +196,6 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
   vkCmdEndRendering(cmd);
 
 #ifdef TRACY_ENABLE
-  // MUST be called OUTSIDE of vkCmdBeginRendering / vkCmdEndRendering pass!
   if (m_context && m_context->getTracyVkCtx()) {
     TracyVkCollect(m_context->getTracyVkCtx(), cmd);
   }

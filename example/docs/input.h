@@ -54,8 +54,8 @@ inline void drawInputDoc(
               .column()
               .gap(16),
           [&]() {
-            TextInput(standardBuffer, "Type something here...",
-                      Modifier().id("stdInputTest").width(400));
+            TextInput(Modifier().id("stdInputTest").width(400), standardBuffer,
+                      "Type something here...");
 
             // Live state output indicator
             Div(Modifier()
@@ -214,8 +214,8 @@ inline void drawInputDoc(
               .column()
               .gap(16),
           [&]() {
-            TextInput(prefilledBuffer, "Flex input...",
-                      Modifier().id("prefilledInputTest").widthGrow());
+            TextInput(Modifier().id("prefilledInputTest").widthGrow(),
+                      prefilledBuffer, "Flex input...");
 
             Row(Modifier().gap(10).center(), [&]() {
               if (Button(Modifier().id("clearInputBtn").padding(6, 12), [&]() {

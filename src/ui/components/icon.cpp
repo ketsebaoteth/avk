@@ -1,6 +1,7 @@
 #include "clay.h"
 #include "ui/components.h"
 #include "ui/generated/lucideIcons.generated.h"
+#include "ui/internal/context.h"
 #include "ui/motion/AtomicMotion.h"
 #include "ui/utils/coreUtils.h"
 
@@ -54,10 +55,14 @@ Interaction Icon(LucideIcon icon, Modifier &&modifier) {
   const float requestedSize = style.fontSize.value_or(
       style.height.value_or(style.width.value_or(16.0f)));
 
-  return Text(iconString, getUiState()->defaultIconFontIds[0],
-              std::move(modifier)
-                  .fontSize(requestedSize)
-                  .size(requestedSize, requestedSize));
+  auto savedFontId = getActiveFont();
+  SetActiveFont(getUiState()->defaultIconFontIds[0]);
+  auto interaction = Text(iconString, std::move(modifier)
+                                          .fontSize(requestedSize)
+                                          .size(requestedSize, requestedSize));
+  // reset font
+  SetActiveFont(savedFontId);
+  return interaction;
 }
 
 } // namespace atomic

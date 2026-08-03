@@ -4,41 +4,34 @@
 #include "ui/components.h"
 #include "ui/core/resources.h"
 #include "ui/internal/context.h"
-#include "ui/motion/AtomicMotion.h"
+#include "ui/style/themeManager.h"
 #include "ui/utils/clayUtils.h"
 
 #include <cmath>
+#include <cstdint>
 
 namespace atomic {
 
-/**
- * @brief Default font overload for Text.
- */
 Interaction Text(const std::string &text, Modifier &&modifier) {
-  return Text(text, 0, std::move(modifier));
-}
-
-/**
- * @brief Auto-generating ID overload for Text.
- */
-Interaction Text(const std::string &text, uint32_t fontId,
-                 Modifier &&modifier) {
   const auto &rawStyle = modifier.getStyle();
   Clay_ElementId textId =
       rawStyle.elementLabel.has_value()
           ? utils::layout::getNextId(rawStyle.elementLabel.value().c_str())
           : utils::layout::getNextId("Text");
-  return Text(text, fontId, textId, std::move(modifier));
+  return Text(text, textId, std::move(modifier));
 }
 
-/**
- * @brief Core Text primitive resolving cascading style inheritance, margins,
- * and multiline wrapped height.
- */
-Interaction Text(const std::string &text, uint32_t fontId,
-                 Clay_ElementId textId, Modifier &&modifier) {
+Interaction Text(const std::string &text, Clay_ElementId textId,
+                 Modifier &&modifier) {
   const auto &rawStyle = modifier.getStyle();
   auto *uiState = getUiState();
+  auto &tm = ThemeManager::getInstance();
+
+  // ⚡ ENUM O(1) LOOKUPS
+  float fontSizeMult =
+      tm.getVariable<float>(ThemeVarId::FontSizeMultiplier, 1.0f);
+  float spacingMult =
+      tm.getVariable<float>(ThemeVarId::SpacingMultiplier, 1.0f);
 
   Style style = utils::layout::resolveTransitions(textId.id, rawStyle);
 
@@ -49,7 +42,6 @@ Interaction Text(const std::string &text, uint32_t fontId,
   Clay_ElementId outerId = textId;
   outerId.id += 0x6D417267;
 
-  // Global base scale factor so developers can use intuitive logical font sizes
   constexpr float BASE_UI_SCALE = 2.0f;
 
   float monitorDpi =
@@ -62,10 +54,10 @@ Interaction Text(const std::string &text, uint32_t fontId,
   if (hasMargin) {
     Clay__OpenElementWithId(outerId);
 
-    float ml = style.marginLeft.value_or(0.0f) * effectiveScale;
-    float mr = style.marginRight.value_or(0.0f) * effectiveScale;
-    float mt = style.marginTop.value_or(0.0f) * effectiveScale;
-    float mb = style.marginBottom.value_or(0.0f) * effectiveScale;
+    float ml = style.marginLeft.value_or(0.0f) * spacingMult * effectiveScale;
+    float mr = style.marginRight.value_or(0.0f) * spacingMult * effectiveScale;
+    float mt = style.marginTop.value_or(0.0f) * spacingMult * effectiveScale;
+    float mb = style.marginBottom.value_or(0.0f) * spacingMult * effectiveScale;
 
     Clay_ElementDeclaration outerDecl{};
     utils::layout::applyStyleToLayout(outerDecl, style);
@@ -84,34 +76,35 @@ Interaction Text(const std::string &text, uint32_t fontId,
   float effectiveOpacity =
       inherited.inheritedOpacity * style.opacity.value_or(1.0f);
 
-  uint32_t finalFontId =
-      (fontId != 0)
-          ? fontId
-          : (inherited.fontId != 0 ? inherited.fontId : getDefaultFontId());
+  uint32_t fontId = getActiveFont();
+  uint32_t finalFontId = (fontId != INVALID_FONT_ID)
+                             ? fontId
+                             : (inherited.fontId.value_or(getDefaultFontId()));
 
   avk::Font *font = getFont(finalFontId);
+
   float defaultLogicalFontSize = (font && font->getFontSize() > 0)
                                      ? static_cast<float>(font->getFontSize())
                                      : 16.0f;
 
-  float unscaledLogicalFontSize = style.fontSize.value_or(
-      inherited.fontSize > 0.0f ? inherited.fontSize : defaultLogicalFontSize);
+  float unscaledLogicalFontSize =
+      (style.fontSize.value_or(
+          inherited.fontSize.value_or(defaultLogicalFontSize))) *
+      fontSizeMult;
 
   float finalPhysicalFontSize = unscaledLogicalFontSize * effectiveScale;
 
-  glm::vec4 textColor = style.textColor.value_or(
-      inherited.textColor.a > 0.01f ? inherited.textColor : Colors::black[900]);
-
-  if (textColor.a < 0.01f) {
-    textColor = glm::vec4(0.10f, 0.10f, 0.11f, 1.0f);
-  }
+  glm::vec4 themeTextColor = tm.getVariable<glm::vec4>(
+      ThemeVarId::ColorTextPrimary, Colors::black[900]);
+  glm::vec4 textColor =
+      style.textColor.value_or(inherited.textColor.value_or(themeTextColor));
 
   textColor.a *= effectiveOpacity;
-  float textOffset = style.textOffset.value_or(inherited.textOffset);
+  float textOffset =
+      style.textOffset.value_or(inherited.textOffset.value_or(0.0f));
 
   Clay_String allocatedString = copyStringToClayBuffer(text);
 
-  // Map style.textAlign to Clay_TextAlignment
   Clay_TextAlignment clayTextAlign = CLAY_TEXT_ALIGN_LEFT;
   if (style.textAlign.has_value()) {
     switch (style.textAlign.value()) {
@@ -121,11 +114,6 @@ Interaction Text(const std::string &text, uint32_t fontId,
     case TextAlign::Right:
       clayTextAlign = CLAY_TEXT_ALIGN_RIGHT;
       break;
-    // case TextAlign::Justify:
-    // Justified text needs full container width from Clay;
-    // payload->textAlign carries Justify to TextLayout::ShapeString!
-    // clayTextAlign = CLAY_TEXT_ALIGN_LEFT;
-    // break;
     default:
       clayTextAlign = CLAY_TEXT_ALIGN_LEFT;
       break;
@@ -152,7 +140,9 @@ Interaction Text(const std::string &text, uint32_t fontId,
   bool isHovered = false;
   Clay_ElementData elementData = Clay_GetElementData(textId);
   if (elementData.found) {
-    glm::vec4 radius = style.borderRadius.value_or(glm::vec4(0.0f));
+    glm::vec4 themeRadius =
+        glm::vec4(tm.getVariable<float>(ThemeVarId::BorderRadiusLg, 0.0f));
+    glm::vec4 radius = style.borderRadius.value_or(themeRadius);
     isHovered = utils::ui::isPointerOverRoundedBox(
         uiState->pointerPos, elementData.boundingBox, radius);
   }

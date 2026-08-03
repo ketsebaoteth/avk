@@ -16,6 +16,7 @@ inline const glm::vec4 DEFAULT_BACKGROUND_NORMAL = "#ffffff"_hex;
 inline const glm::vec4 DEFAULT_BORDER_NORMAL = "#e5e5e5"_hex;
 inline const glm::vec4 DEFAULT_BORDER_RADIUS = glm::vec4(6.0f);
 inline const float DEFAULT_BORDER_WIDTH = 1.0f;
+constexpr uint32_t INVALID_FONT_ID = 0xFFFFFFFF; // numeric limit
 
 namespace Curves {
 inline const AnimationCurve AppleEaseOut =
@@ -64,19 +65,21 @@ Interaction Image(Modifier &&modifier, uint32_t textureIndex,
 /**
  * @brief Renders a styled, layout-integrated text component.
  */
-Interaction Text(const std::string &text, uint32_t fontId,
-                 Modifier &&modifier = Modifier());
 
 /**
  * @brief Overload for Text using default or inherited font ID.
  */
-Interaction Text(const std::string &text, Modifier &&modifier = Modifier());
+Interaction Text(const std::string &text, Modifier &&modifier);
+
+inline Interaction Text(const std::string &text) {
+  return Text(text, Modifier());
+};
 
 /**
  * @brief Internal overload for Text with explicit element ID.
  */
-Interaction Text(const std::string &text, uint32_t fontId,
-                 Clay_ElementId textId, Modifier &&modifier = Modifier());
+Interaction Text(const std::string &text, Clay_ElementId textId,
+                 Modifier &&modifier = Modifier());
 
 /**
  * @brief Interactive composable Button component.
@@ -89,7 +92,7 @@ Interaction Button(Modifier &&modifier, const std::function<void()> &content);
  */
 inline Interaction Button(const std::string &label,
                           Modifier &&modifier = Modifier{}) {
-  return Button(std::move(modifier), [label]() { Text(label); });
+  return Button(std::move(modifier), [label]() { Text(label, Modifier()); });
 }
 
 /**
@@ -126,25 +129,16 @@ struct TextConfig {
  * clipboard, and selection.
  */
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
-                      const std::string &placeholder, const TextConfig &config,
-                      uint32_t fontId = 0);
+                      const std::string &placeholder, const TextConfig &config);
 
 Interaction TextInput(Modifier &&modifier, std::string &textBuffer,
-                      const std::string &placeholder = "", uint32_t fontId = 0);
-
-Interaction TextInput(std::string &textBuffer, const std::string &placeholder,
-                      Modifier &&modifier); /**
-                                             * @brief Placement positioning
-                                             * modes for Select dropdown menus.
-                                             */
-enum class DropdownPlacement { Smart, Bottom, Top, Left, Right };
+                      const std::string &placeholder = "");
 
 /**
- * @brief Dropdown select menu component with explicit font ID.
+ * @brief Placement positioning
+ * modes for Select dropdown menus.
  */
-Interaction Select(Modifier &&modifier, bool &isOpen, size_t &selectedIndex,
-                   const std::vector<std::string> &options, uint32_t fontId,
-                   DropdownPlacement placement = DropdownPlacement::Smart);
+enum class DropdownPlacement { Smart, Bottom, Top, Left, Right };
 
 /**
  * @brief Dropdown select menu component using default font.
@@ -170,13 +164,9 @@ struct ScrollViewConfig {
   float scrollbarMarginBottom = 4.0f;
   float scrollbarMinThumbSize = 24.0f;
 
-  // Optimized for light themes (Neutral light-gray tones)
-  glm::vec4 scrollbarColor = {0.82f, 0.82f, 0.85f,
-                              0.80f}; // Light gray (approx. gray[200])
-  glm::vec4 scrollbarColorHover = {0.65f, 0.65f, 0.68f,
-                                   0.90f}; // Medium gray on hover
-  glm::vec4 scrollbarColorPressed = {0.50f, 0.50f, 0.54f,
-                                     1.0f}; // Darker gray when pressed
+  glm::vec4 scrollbarColor = {0.82f, 0.82f, 0.85f, 0.80f};
+  glm::vec4 scrollbarColorHover = {0.65f, 0.65f, 0.68f, 0.90f};
+  glm::vec4 scrollbarColorPressed = {0.50f, 0.50f, 0.54f, 1.0f};
 };
 /**
  * @brief Scrollable viewport container with custom configuration.

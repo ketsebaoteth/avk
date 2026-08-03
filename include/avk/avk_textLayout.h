@@ -8,6 +8,7 @@
 #include <harfbuzz/hb.h>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace avk {
@@ -34,7 +35,7 @@ struct TextLayoutOptions {
   float fontSize{16.0f};
   float baseFontSize{32.0f};
   float fontWeight{400.0f};
-  float lineHeight{0.0f}; // 0 = Auto (1.2 * fontSize)
+  float lineHeight{0.0f};
   float letterSpacing{0.0f};
   float maxWidth{0.0f};
   uint32_t textureIndex{0};
@@ -54,11 +55,74 @@ public:
                                               const TextLayoutOptions &options,
                                               float startX = 0.0f,
                                               float startY = 0.0f) {
-    std::vector<ShapedGlyph> resultGlyphs;
     if (utf8Text.empty() || !hbFont) {
-      return resultGlyphs;
+      return {};
     }
 
+    // ------------------------------------------------------------------------
+    // ⚡ O(1) SHAPING CACHE: Bypass HarfBuzz & Bidi for identical strings
+    // ------------------------------------------------------------------------
+    struct CacheKey {
+      hb_font_t *font;
+      size_t textHash;
+      float fontSize;
+      float fontWeight;
+      float letterSpacing;
+      float lineHeight;
+      float maxWidth;
+      uint8_t wrapMode;
+      uint8_t alignMode;
+
+      bool operator==(const CacheKey &other) const {
+        return font == other.font && textHash == other.textHash &&
+               fontSize == other.fontSize && fontWeight == other.fontWeight &&
+               letterSpacing == other.letterSpacing &&
+               lineHeight == other.lineHeight && maxWidth == other.maxWidth &&
+               wrapMode == other.wrapMode && alignMode == other.alignMode;
+      }
+    };
+
+    struct CacheHash {
+      size_t operator()(const CacheKey &k) const noexcept {
+        size_t h = k.textHash;
+        h ^= std::hash<void *>()(k.font) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<float>()(k.fontSize) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<float>()(k.maxWidth) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        return h;
+      }
+    };
+
+    thread_local std::unordered_map<CacheKey, std::vector<ShapedGlyph>,
+                                    CacheHash>
+        s_shapeCache;
+
+    size_t textHash = std::hash<std::string_view>{}(utf8Text);
+    CacheKey key{hbFont,
+                 textHash,
+                 options.fontSize,
+                 options.fontWeight,
+                 options.letterSpacing,
+                 options.lineHeight,
+                 options.maxWidth,
+                 static_cast<uint8_t>(options.wrapMode),
+                 static_cast<uint8_t>(options.alignMode)};
+
+    auto cacheIt = s_shapeCache.find(key);
+    if (cacheIt != s_shapeCache.end()) {
+      auto cachedGlyphs = cacheIt->second;
+      for (auto &g : cachedGlyphs) {
+        g.rectXYWH.x += startX;
+        g.rectXYWH.y += startY;
+        g.color = options.color;
+        g.textureIndex = options.textureIndex;
+      }
+      return cachedGlyphs;
+    }
+
+    // ------------------------------------------------------------------------
+    // HarfBuzz Shaping Pass (Only runs ONCE per unique text label)
+    // ------------------------------------------------------------------------
+    std::vector<ShapedGlyph> unshiftedGlyphs;
     std::vector<BidiRun> bidiRuns = BidiEngine::ProcessText(utf8Text);
 
     thread_local hb_buffer_t *hbBuffer = nullptr;
@@ -195,12 +259,12 @@ public:
       currentWidth += g.xAdvance;
     }
 
-    resultGlyphs.reserve(rawGlyphs.size());
-    float cursorY = startY;
+    unshiftedGlyphs.reserve(rawGlyphs.size());
+    float cursorY = 0.0f;
 
     for (size_t lIdx = 0; lIdx < lines.size(); ++lIdx) {
       auto &line = lines[lIdx];
-      float lineX = startX;
+      float lineX = 0.0f;
 
       if (options.maxWidth > 0.0f && options.maxWidth > line.width) {
         float remainingSpace = options.maxWidth - line.width;
@@ -227,15 +291,21 @@ public:
         glyph.rectXYWH = glm::vec4(cursorX + g.xOffset, cursorY - g.yOffset,
                                    g.xAdvance, options.fontSize);
 
-        resultGlyphs.push_back(glyph);
-
+        unshiftedGlyphs.push_back(glyph);
         cursorX += g.xAdvance;
       }
 
       cursorY += effectiveLineHeight;
     }
 
-    return resultGlyphs;
+    s_shapeCache[key] = unshiftedGlyphs;
+
+    for (auto &g : unshiftedGlyphs) {
+      g.rectXYWH.x += startX;
+      g.rectXYWH.y += startY;
+    }
+
+    return unshiftedGlyphs;
   }
 };
 

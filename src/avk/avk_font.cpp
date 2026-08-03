@@ -1,7 +1,6 @@
 #include "avk/avk_font.h"
-#include "avk/avk_textLayout.h"
-
 #include "avk/avk_core.h"
+#include "avk/avk_textLayout.h"
 #include "glm/ext/vector_float2.hpp"
 #include "tracy/Tracy.hpp"
 #include "ui/core/resources.h"
@@ -112,7 +111,6 @@ bool Font::loadFromFile(loadFontConfig &config) {
     return false;
   }
 
-  // 1. Allocate GPU Image for dynamic Emoji shelf atlas
   VkImageCreateInfo imageInfo{};
   imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -133,7 +131,6 @@ bool Font::loadFromFile(loadFontConfig &config) {
       m_allocator->createImage(imageInfo, VMA_MEMORY_USAGE_GPU_ONLY);
   m_emojiAtlasLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-  // 2. Transition m_emojiAtlasImage layout to SHADER_READ_ONLY_OPTIMAL
   m_allocator->immediateSubmit([&](VkCommandBuffer cmd) {
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -156,8 +153,6 @@ bool Font::loadFromFile(loadFontConfig &config) {
   });
   m_emojiAtlasLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-  // 3. Register m_emojiAtlasImage view in Vulkan Texture Manager at
-  // m_emojiTextureSlot
   if (m_allocator && m_allocator->getContext() &&
       m_allocator->getContext()->getTextureManager()) {
 
@@ -279,7 +274,6 @@ bool Font::loadMetricsCsv(const char *csvPath) {
   };
 
   while (current < end) {
-    // Skip residual blank rows or whitespace tracking characters
     if (*current == '\n' || *current == '\r' || *current == ' ') {
       current++;
       continue;
@@ -287,7 +281,6 @@ bool Font::loadMetricsCsv(const char *csvPath) {
 
     GlyphMetrics gm{};
 
-    // In-place parsing sequentially through our extracted structural variables
     if (!parseNextUint(gm.codepoint))
       continue;
     if (!parseNextFloat(gm.advance))
@@ -309,7 +302,6 @@ bool Font::loadMetricsCsv(const char *csvPath) {
     if (!parseNextFloat(gm.atlasTop))
       continue;
 
-    // Cache assignment with no hash collisions or allocations
     m_codepointMetricsMap[gm.codepoint] = gm;
 
     if (m_ftFace) {
@@ -390,11 +382,19 @@ bool Font::loadEmojiGlyph(uint32_t glyphIndex, std::vector<uint8_t> &outPixels,
   return false;
 }
 
-bool Font::isEmojiGlyph(uint32_t glyphIndex) {
-  if (FT_Load_Glyph(m_ftFace, glyphIndex, FT_LOAD_COLOR) == 0) {
-    return m_ftFace->glyph->format == FT_GLYPH_FORMAT_BITMAP;
+// ⚡ CACHED: Zero FT_Load_Glyph calls on the hot path
+bool Font::isEmojiGlyph(uint32_t glyphIndex) const {
+  auto it = m_emojiCache.find(glyphIndex);
+  if (it != m_emojiCache.end()) {
+    return it->second;
   }
-  return false;
+
+  bool isEmoji = false;
+  if (m_ftFace && FT_Load_Glyph(m_ftFace, glyphIndex, FT_LOAD_COLOR) == 0) {
+    isEmoji = (m_ftFace->glyph->format == FT_GLYPH_FORMAT_BITMAP);
+  }
+  m_emojiCache[glyphIndex] = isEmoji;
+  return isEmoji;
 }
 
 glm::vec4 Font::allocateAndUploadEmoji(uint32_t glyphIndex,
@@ -438,7 +438,6 @@ glm::vec4 Font::allocateAndUploadEmoji(uint32_t glyphIndex,
     barrier.subresourceRange.baseArrayLayer = 0;
     barrier.subresourceRange.layerCount = 1;
 
-    // Match pipeline stage mask to access mask
     VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
     VkAccessFlags srcAccess = 0;
 
@@ -524,7 +523,6 @@ glm::vec2 Font::measureText(std::string_view text, float fontSize,
 
   for (const auto &g : glyphs) {
     maxLineWidth = std::max(maxLineWidth, g.rectXYWH.x + g.xAdvance);
-    // Accumulate height using the active line height for each line slot
     maxY = std::max(maxY, g.rectXYWH.y + effectiveLineH);
   }
 
@@ -629,11 +627,10 @@ Font::layoutText(std::string_view text, glm::vec2 position,
   for (const auto &glyph : shapedGlyphs) {
     avk::InstanceData instance{};
 
+    // ⚡ Fast O(1) cached emoji query
     bool isEmoji = isEmojiGlyph(glyph.glyphIndex);
     uint32_t activeEmojiKey = glyph.glyphIndex;
 
-    // Fallback to Noto Color Emoji only for non-ASCII characters (codepoint >=
-    // 0x80)
     if ((!isEmoji || glyph.glyphIndex == 0) && m_ftEmojiFace) {
       uint32_t codepoint = getUtf8CodepointAtCluster(text, glyph.clusterIndex);
       if (codepoint >= 0x80) {
@@ -674,7 +671,7 @@ Font::layoutText(std::string_view text, glm::vec2 position,
       instance.uvBounds = uvRect;
       instance.clipRect = clipRect;
       instance.shapeType = 0;
-      instance.fillType = 7; // fillType = 7 for RGBA Color Emoji sampling
+      instance.fillType = 7;
       instance.textureIndex = m_emojiTextureSlot;
       instance.strokeThickness = glm::vec4(0.0f);
       instance.blur = 0.0f;
