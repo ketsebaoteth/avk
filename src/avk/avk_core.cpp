@@ -30,6 +30,9 @@
 
 namespace avk {
 
+// Global static flag to prefer Integrated GPUs during physical device selection
+static bool g_preferIntegrated = true;
+
 VulkanContext::VulkanContext(std::optional<VeraNativeHandle> nativeDisplay,
                              bool enableValidation) {
   m_nativeDisplay = nativeDisplay;
@@ -357,11 +360,21 @@ bool VulkanContext::selectPhysicalDevice() {
 
     int score = 0;
 
-    if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-      score += 10000;
-    } else if (deviceProperties.deviceType ==
-               VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
-      score += 1000;
+    if (g_preferIntegrated) {
+      if (deviceProperties.deviceType ==
+          VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+        score += 10000;
+      } else if (deviceProperties.deviceType ==
+                 VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        score += 1000;
+      }
+    } else {
+      if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+        score += 10000;
+      } else if (deviceProperties.deviceType ==
+                 VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) {
+        score += 1000;
+      }
     }
 
     if (deviceProperties.vendorID == 0x10DE) { // NVIDIA

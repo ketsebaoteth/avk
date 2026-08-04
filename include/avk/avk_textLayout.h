@@ -60,11 +60,12 @@ public:
     }
 
     // ------------------------------------------------------------------------
-    // ⚡ O(1) SHAPING CACHE: Bypass HarfBuzz & Bidi for identical strings
+    // ⚡ SAFE O(1) SHAPING CACHE: Exact string keys & automatic capacity cap
     // ------------------------------------------------------------------------
     struct CacheKey {
       hb_font_t *font;
-      size_t textHash;
+      std::string
+          text; // ✅ Store actual string to prevent hash collisions & UAF
       float fontSize;
       float fontWeight;
       float letterSpacing;
@@ -74,7 +75,7 @@ public:
       uint8_t alignMode;
 
       bool operator==(const CacheKey &other) const {
-        return font == other.font && textHash == other.textHash &&
+        return font == other.font && text == other.text &&
                fontSize == other.fontSize && fontWeight == other.fontWeight &&
                letterSpacing == other.letterSpacing &&
                lineHeight == other.lineHeight && maxWidth == other.maxWidth &&
@@ -84,7 +85,7 @@ public:
 
     struct CacheHash {
       size_t operator()(const CacheKey &k) const noexcept {
-        size_t h = k.textHash;
+        size_t h = std::hash<std::string>{}(k.text);
         h ^= std::hash<void *>()(k.font) + 0x9e3779b9 + (h << 6) + (h >> 2);
         h ^= std::hash<float>()(k.fontSize) + 0x9e3779b9 + (h << 6) + (h >> 2);
         h ^= std::hash<float>()(k.maxWidth) + 0x9e3779b9 + (h << 6) + (h >> 2);
@@ -96,9 +97,13 @@ public:
                                     CacheHash>
         s_shapeCache;
 
-    size_t textHash = std::hash<std::string_view>{}(utf8Text);
+    // Clear cache if it gets too large to prevent holding stale font
+    if (s_shapeCache.size() > 4096) {
+      s_shapeCache.clear();
+    }
+
     CacheKey key{hbFont,
-                 textHash,
+                 std::string(utf8Text),
                  options.fontSize,
                  options.fontWeight,
                  options.letterSpacing,
@@ -118,7 +123,7 @@ public:
       }
       return cachedGlyphs;
     }
-
+    //
     // ------------------------------------------------------------------------
     // HarfBuzz Shaping Pass (Only runs ONCE per unique text label)
     // ------------------------------------------------------------------------

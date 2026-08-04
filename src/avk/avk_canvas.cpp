@@ -112,6 +112,8 @@ void WindowCanvas::resize(uint32_t width, uint32_t height) {
 bool WindowCanvas::isActive() const { return m_swapchain->isActive(); }
 
 bool WindowCanvas::beginFrame() {
+  ZoneScopedN("Canvas_BeginFrame_Detail");
+
   if (!m_swapchain->isActive()) {
     return false;
   }
@@ -122,23 +124,32 @@ bool WindowCanvas::beginFrame() {
   // 1. Wait for the current frame-in-flight's fence to be signaled (CPU-GPU
   // sync)
   VkFence fence = frame.getInFlightFence();
-  vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+  {
+    ZoneScopedN("Vulkan_WaitFrameFence");
+    vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+  }
 
-  processDeletionQueue();
+  {
+    ZoneScopedN("Canvas_ProcessDeletionQueue");
+    processDeletionQueue();
+  }
 
   // 2. Acquire the next swapchain image
-  VkResult result =
-      vkAcquireNextImageKHR(device, m_swapchain->getSwapchain(), UINT64_MAX,
-                            frame.getImageAvailableSemaphore(), VK_NULL_HANDLE,
-                            &m_acquiredImageIndex);
+  VkResult result;
+  {
+    ZoneScopedN("Vulkan_AcquireNextImageKHR");
+    result =
+        vkAcquireNextImageKHR(device, m_swapchain->getSwapchain(), UINT64_MAX,
+                              frame.getImageAvailableSemaphore(),
+                              VK_NULL_HANDLE, &m_acquiredImageIndex);
+  }
 
   // -----------------------------------------------------------------
-  // THE CRITICAL FIX: Safe exit on out of date/suboptimal resize traps
+  // Safe exit on out of date/suboptimal resize traps
   // -----------------------------------------------------------------
   if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+    ZoneScopedN("Canvas_RecreateSwapchain");
     m_swapchain->recreate(m_width, m_height);
-    // Do NOT touch m_imagesInFlight here since m_acquiredImageIndex might be
-    // garbage or invalid!
     return false;
   } else if (result != VK_SUCCESS) {
     return false;
@@ -147,11 +158,12 @@ bool WindowCanvas::beginFrame() {
   // 3. If the acquired swapchain image is currently being used by another
   // frame-in-flight, wait on its fence!
   if (m_imagesInFlight[m_acquiredImageIndex] != VK_NULL_HANDLE) {
+    ZoneScopedN("Vulkan_WaitImageFence");
     vkWaitForFences(device, 1, &m_imagesInFlight[m_acquiredImageIndex], VK_TRUE,
                     UINT64_MAX);
   }
 
-  // Now it is 100% safe to reset the current frame's fence!
+  // Reset current frame's fence
   vkResetFences(device, 1, &fence);
 
   frame.reset();
@@ -161,26 +173,37 @@ bool WindowCanvas::beginFrame() {
   beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
   beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 
-  vkBeginCommandBuffer(cmd, &beginInfo);
+  {
+    ZoneScopedN("Canvas_BeginCommandBuffer");
+    vkBeginCommandBuffer(cmd, &beginInfo);
 
-  transitionImageLayout(cmd, m_swapchain->getImages()[m_acquiredImageIndex],
-                        VK_IMAGE_LAYOUT_UNDEFINED,
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    transitionImageLayout(cmd, m_swapchain->getImages()[m_acquiredImageIndex],
+                          VK_IMAGE_LAYOUT_UNDEFINED,
+                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+  }
 
   return true;
 }
 
 void WindowCanvas::endFrame(Renderer &renderer) {
+  ZoneScopedN("Canvas_EndFrame");
+
   FrameContext &frame = m_frames[m_currentFrameIndex];
   VkCommandBuffer cmd = frame.getCommandBuffer();
   VkExtent2D extent = m_swapchain->getExtent();
 
-  renderer.render(cmd, m_swapchain->getImageViews()[m_acquiredImageIndex],
-                  m_swapchain->getFormat(), extent);
+  {
+    ZoneScopedN("Canvas_RenderUI");
+    renderer.render(cmd, m_swapchain->getImageViews()[m_acquiredImageIndex],
+                    m_swapchain->getFormat(), extent);
+  }
 
-  transitionImageLayout(cmd, m_swapchain->getImages()[m_acquiredImageIndex],
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  {
+    ZoneScopedN("Canvas_TransitionLayout");
+    transitionImageLayout(cmd, m_swapchain->getImages()[m_acquiredImageIndex],
+                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                          VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+  }
 
   vkEndCommandBuffer(cmd);
 
@@ -204,8 +227,11 @@ void WindowCanvas::endFrame(Renderer &renderer) {
   submitInfo.signalSemaphoreCount = 1;
   submitInfo.pSignalSemaphores = signalSemaphores;
 
-  vkQueueSubmit(m_context->getGraphicsQueue(), 1, &submitInfo,
-                frame.getInFlightFence());
+  {
+    ZoneScopedN("Canvas_QueueSubmit");
+    vkQueueSubmit(m_context->getGraphicsQueue(), 1, &submitInfo,
+                  frame.getInFlightFence());
+  }
 
   VkPresentInfoKHR presentInfo{};
   presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -217,7 +243,10 @@ void WindowCanvas::endFrame(Renderer &renderer) {
   presentInfo.pSwapchains = swapchains;
   presentInfo.pImageIndices = &m_acquiredImageIndex;
 
-  vkQueuePresentKHR(m_context->getPresentQueue(), &presentInfo);
+  {
+    ZoneScopedN("Canvas_QueuePresent");
+    vkQueuePresentKHR(m_context->getPresentQueue(), &presentInfo);
+  }
 
   m_currentFrameIndex = (m_currentFrameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }

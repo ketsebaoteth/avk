@@ -217,6 +217,7 @@ inline void applyStyleToLayout(Clay_ElementDeclaration &decl,
             ? CLAY_POINTER_CAPTURE_MODE_CAPTURE
             : CLAY_POINTER_CAPTURE_MODE_PASSTHROUGH;
     decl.floating.attachPoints = {mainAttach, parentAttach};
+    decl.floating.zIndex = style.zIndex.value_or(0);
 
     if (pos == atomic::Position::Absolute) {
       if (style.parentId.has_value()) {

@@ -63,6 +63,7 @@ struct UIState {
   std::unique_ptr<avk::VulkanContext> context;
   std::unique_ptr<avk::Renderer> renderer;
   bool injectDevTools = true;
+  std::vector<std::string> stringArena;
 
   // Frame Data & Performance Metrics
   float frameTimeMs = 0.0f;

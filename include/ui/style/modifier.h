@@ -660,6 +660,11 @@ public:
     return std::move(*this);
   }
 
+  Modifier zIndex(float index) && {
+    m_style.zIndex = index;
+    return std::move(*this);
+  }
+
   [[nodiscard]] const Style &getStyle() const { return m_style; }
 
 private:

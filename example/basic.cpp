@@ -1,175 +1,32 @@
 #include "avk/atomic.h"
-
-#include "docs/animation.h"
-#include "docs/button.h"
-#include "docs/div.h"
-#include "docs/input.h"
-
 #include <print>
 #include <string>
-#include <vector>
 
-struct DocNavigation {
-  std::vector<std::string> history = {"buttonTab"};
-  size_t pointer = 0;
-
-  void push(const std::string &tab) {
-    if (pointer < history.size() - 1) {
-      history.erase(history.begin() + pointer + 1, history.end());
-    }
-    if (history[pointer] != tab) {
-      history.push_back(tab);
-      pointer = history.size() - 1;
-    }
-  }
-
-  void back() {
-    if (pointer > 0)
-      pointer--;
-  }
-
-  void forward() {
-    if (pointer < history.size() - 1)
-      pointer++;
-  }
-
-  [[nodiscard]] std::string current() const { return history[pointer]; }
-  [[nodiscard]] bool canBack() const { return pointer > 0; }
-  [[nodiscard]] bool canForward() const { return pointer < history.size() - 1; }
-};
-
-void drawDocHeader(const std::string &title, const std::string &subtitle,
-                   DocNavigation &nav, std::string &activeTab,
-                   const std::string &idPrefix) {
+void drawTextBenchmarkScene(VeraWindow *window) {
   using namespace atomic;
-  using namespace atomicComponents;
-
-  Column(Modifier().gap(10).widthGrow(), [&]() {
-    Row(Modifier().widthGrow().center(), [&]() {
-      Text(title, Modifier().fontSize(50).fontWeight(700).textColor(
-                      Colors::black[1000]));
-      Div(Modifier().widthGrow());
-
-      std::string backId = idPrefix + "_goBackBtn";
-      std::string fwdId = idPrefix + "_goForwardBtn";
-
-      Toast(
-          [&]() {
-            if (Button(Modifier().id(backId),
-                       [&]() { Icon(LucideIcon::CornerUpLeft); })
-                    .clicked &&
-                nav.canBack()) {
-              nav.back();
-              activeTab = nav.current();
-            }
-          },
-          [&]() { Text("Go back to prev page"); });
-
-      Toast(
-          [&]() {
-            if (Button(Modifier().id(fwdId),
-                       [&]() { Icon(LucideIcon::CornerUpRight); })
-                    .clicked &&
-                nav.canForward()) {
-              nav.forward();
-              activeTab = nav.current();
-            }
-          },
-          [&]() { Text("Go to next page"); });
-    });
-    Text(subtitle,
-         Modifier().fontSize(14).fontWeight(400).textColor(Colors::black[500]));
-  });
-}
-
-void drawProfileMenuScene(VeraWindow *window, uint32_t banner) {
-  using namespace atomic;
-  using namespace atomicComponents;
-
-  (void)banner;
 
   auto width = static_cast<float>(getWidth(window));
   auto height = static_cast<float>(getHeight(window));
-  static std::string searchInput = "";
-  static std::string activeTab = "buttonTab";
-  static DocNavigation docNav;
 
-  Row(Modifier().background("#ffffff"_hex).size(width, height), [&]() {
-    Div(Modifier()
-            .heightGrow()
-            .padding(30, 50)
-            .column()
-            .gap(10)
-            .border(Colors::gray[100], {0.0f, 1.0f, 0.0f, 0.0f})
-            .relative(),
-        [&]() {
-          // Div(Modifier()
-          //         .absolute()
-          //         .right(0)
-          //         .width(1.0f)
-          //         .heightGrow()
-          //         .linearGradient(180.0f, {
-          //                                     {Colors::transparent, 0.2f},
-          //                                     {Colors::gray[200], 0.5f},
-          //                                     {Colors::transparent, 0.8f},
-          //                                 }));
+  // Root background container
+  Div(Modifier().background("#1e1e1e"_hex).size(width, height), [&]() {
+    // Scrollable viewport
+    ScrollView(
+        Modifier().id("BenchmarkScrollView").widthGrow().heightGrow(), [&]() {
+          // Column wrapper for the 1,300 text items
+          Div(Modifier().column().padding(8).gap(2).widthGrow(), [&]() {
+            for (int i = 0; i < 1300; ++i) {
+              std::string textStr = "Text element #" + std::to_string(i) +
+                                    " - Sample text for performance testing";
 
-          Text("Gallery", Modifier()
-                              .background(Colors::red[1000])
-                              .fontSize(50)
-                              .fontWeight(600)
-                              .color("#000000"_hex));
-          TextInput(Modifier().id("searchField").width(500), searchInput,
-                    "search ...");
-
-          Div(Modifier().column().heightGrow().widthGrow().padding(5, 50),
-              [&]() {
-                if (TabButton("buttonTab", "Button", activeTab)) {
-                  activeTab = "buttonTab";
-                  docNav.push("buttonTab");
-                }
-                if (TabButton("divTab", "Div", activeTab)) {
-                  activeTab = "divTab";
-                  docNav.push("divTab");
-                }
-                if (TabButton("inputTab", "Text Input", activeTab)) {
-                  activeTab = "inputTab";
-                  docNav.push("inputTab");
-                }
-                if (TabButton("animationTab", "Animation Engine", activeTab)) {
-                  activeTab = "animationTab";
-                  docNav.push("animationTab");
-                }
-              });
-        });
-
-    // -------------------------------------------------------------------------
-    // Documentation Content Viewport
-    // -------------------------------------------------------------------------
-    ScrollView(Modifier().heightGrow().id("DocsScrollView").widthGrow(), [&]() {
-      Div(Modifier()
-              .padding(200, 150)
-              .alignX(AlignmentX::Center)
-              .column()
-              .widthGrow()
-              .heightGrow(),
-          [&]() {
-            auto headerBinder = [&](const std::string &title,
-                                    const std::string &subtitle) {
-              drawDocHeader(title, subtitle, docNav, activeTab, activeTab);
-            };
-
-            if (activeTab == "buttonTab") {
-              atomic::docs::drawButtonDoc(headerBinder);
-            } else if (activeTab == "divTab") {
-              atomic::docs::drawDivDoc(headerBinder);
-            } else if (activeTab == "inputTab") { // <-- ADD THIS
-              atomic::docs::drawInputDoc(headerBinder);
-            } else if (activeTab == "animationTab") {
-              atomic::docs::drawAnimationDoc(headerBinder);
+              Div(Modifier().padding(4).background("#2d2d2d"_hex).widthGrow(),
+                  [&]() {
+                    Text(textStr,
+                         Modifier().fontSize(14).textColor(Colors::white));
+                  });
             }
           });
-    });
+        });
   });
 }
 
@@ -179,7 +36,7 @@ int main() {
 
   auto windowResult = app.createWindow({.width = 800,
                                         .height = 600,
-                                        .title = "atomicUI Modern Composer",
+                                        .title = "atomicUI Text Benchmark",
                                         .customTitleBar = true});
   if (!windowResult) {
     std::println("window creation failed: {}", windowResult.error().info);
@@ -195,7 +52,6 @@ int main() {
                                      .minimizeButton = VeraRect{740, 5, 30, 20},
                                      .maximizeButton = VeraRect{770, 5, 30, 20},
                                      .closeButton = VeraRect{800, 5, 30, 20}});
-  auto id = atomic::loadTexture("images/Banner.png");
 
   bool isClosing = false;
   window->setCloseRequestCallback([&]() -> bool {
@@ -206,7 +62,7 @@ int main() {
   });
 
   window->setResizeCallback(
-      [&isClosing, window, id](uint32_t newWidth, uint32_t newHeight) {
+      [&isClosing, window](uint32_t newWidth, uint32_t newHeight) {
         if (isClosing)
           return;
 
@@ -219,7 +75,7 @@ int main() {
              .closeButton = VeraRect{newWidth, 5, 30, 20}});
 
         if (atomic::beginFrame(window)) {
-          drawProfileMenuScene(window, id);
+          drawTextBenchmarkScene(window);
           atomic::endFrame(window);
         }
       });
@@ -231,7 +87,7 @@ int main() {
     }
 
     if (atomic::beginFrame(window)) {
-      drawProfileMenuScene(window, id);
+      drawTextBenchmarkScene(window);
       atomic::endFrame(window);
     }
   }

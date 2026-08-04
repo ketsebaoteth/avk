@@ -9,10 +9,11 @@
 
 #include <cmath>
 #include <cstdint>
+#include <string_view>
 
 namespace atomic {
 
-Interaction Text(const std::string &text, Modifier &&modifier) {
+Interaction Text(std::string_view text, Modifier &&modifier) {
   const auto &rawStyle = modifier.getStyle();
   Clay_ElementId textId =
       rawStyle.elementLabel.has_value()
@@ -21,7 +22,7 @@ Interaction Text(const std::string &text, Modifier &&modifier) {
   return Text(text, textId, std::move(modifier));
 }
 
-Interaction Text(const std::string &text, Clay_ElementId textId,
+Interaction Text(std::string_view text, Clay_ElementId textId,
                  Modifier &&modifier) {
   const auto &rawStyle = modifier.getStyle();
   auto *uiState = getUiState();
@@ -103,7 +104,8 @@ Interaction Text(const std::string &text, Clay_ElementId textId,
   float textOffset =
       style.textOffset.value_or(inherited.textOffset.value_or(0.0f));
 
-  Clay_String allocatedString = copyStringToClayBuffer(text);
+  // ⚡ Fix: Explicitly construct std::string for copyStringToClayBuffer
+  Clay_String allocatedString = copyStringToClayBuffer(std::string(text));
 
   Clay_TextAlignment clayTextAlign = CLAY_TEXT_ALIGN_LEFT;
   if (style.textAlign.has_value()) {
@@ -171,6 +173,13 @@ Interaction Text(const std::string &text, Clay_ElementId textId,
     resolved.textOffset = textOffset;
     resolved.fontId = finalFontId;
     resolved.fontSize = unscaledLogicalFontSize;
+    resolved.fontWeight =
+        style.fontWeight.value_or(inherited.fontWeight.value_or(400.0f));
+    resolved.letterSpacing =
+        style.letterSpacing.value_or(inherited.letterSpacing.value_or(0.0f));
+    resolved.lineHeight =
+        style.lineHeight.value_or(inherited.lineHeight.value_or(0.0f));
+
     uiState->computedStyleMap[textId.id] = resolved;
   }
 

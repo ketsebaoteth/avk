@@ -6,6 +6,7 @@
 #include "ui/utils/color.h"
 #include <functional>
 #include <string>
+#include <string_view>
 
 struct Clay_ElementId;
 
@@ -69,16 +70,16 @@ Interaction Image(Modifier &&modifier, uint32_t textureIndex,
 /**
  * @brief Overload for Text using default or inherited font ID.
  */
-Interaction Text(const std::string &text, Modifier &&modifier);
+Interaction Text(std::string_view text, Modifier &&modifier);
 
-inline Interaction Text(const std::string &text) {
+inline Interaction Text(std::string_view text) {
   return Text(text, Modifier());
 };
 
 /**
  * @brief Internal overload for Text with explicit element ID.
  */
-Interaction Text(const std::string &text, Clay_ElementId textId,
+Interaction Text(std::string_view text, Clay_ElementId textId,
                  Modifier &&modifier = Modifier());
 
 /**

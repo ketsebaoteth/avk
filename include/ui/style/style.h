@@ -199,6 +199,7 @@ struct Style {
   std::optional<glm::vec2> offset;
   std::optional<ObjectFit> objectFit;
   std::optional<glm::vec4> uvBounds;
+  std::optional<float> zIndex;
 };
 
 } // namespace atomic

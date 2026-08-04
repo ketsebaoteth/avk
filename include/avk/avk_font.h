@@ -48,7 +48,47 @@ class Font {
 public:
   Font() = default;
   ~Font();
+  // ⚡ DISABLE COPYING to prevent shallow copies from freeing FT_Face
+  Font(const Font &) = delete;
+  Font &operator=(const Font &) = delete;
 
+  // Enable Move semantics
+  Font(Font &&other) noexcept
+      : m_pixelSize(other.m_pixelSize), m_allocator(other.m_allocator),
+        m_fontTextureSlot(other.m_fontTextureSlot),
+        m_fontAtlasWidth(other.m_fontAtlasWidth),
+        m_fontAtlasHeight(other.m_fontAtlasHeight),
+        m_isIconFont(other.m_isIconFont), m_ftFace(other.m_ftFace),
+        m_ftEmojiFace(other.m_ftEmojiFace), m_hbFont(other.m_hbFont),
+        m_codepointMetricsMap(std::move(other.m_codepointMetricsMap)),
+        m_glyphIndexMetricsMap(std::move(other.m_glyphIndexMetricsMap)),
+        m_emojiCache(std::move(other.m_emojiCache)),
+        m_emojiAtlasImage(std::move(other.m_emojiAtlasImage)),
+        m_emojiImageView(other.m_emojiImageView),
+        m_emojiAtlasLayout(other.m_emojiAtlasLayout),
+        m_emojiTextureSlot(other.m_emojiTextureSlot),
+        m_emojiAtlasWidth(other.m_emojiAtlasWidth),
+        m_emojiAtlasHeight(other.m_emojiAtlasHeight), m_shelfX(other.m_shelfX),
+        m_shelfY(other.m_shelfY), m_rowHeight(other.m_rowHeight),
+        m_atlasPadding(other.m_atlasPadding),
+        m_emojiUvMap(std::move(other.m_emojiUvMap)) {
+    // Critical: prevent the source from destroying the resources
+    other.m_ftFace = nullptr;
+    other.m_ftEmojiFace = nullptr;
+    other.m_hbFont = nullptr;
+    other.m_emojiImageView = VK_NULL_HANDLE;
+  }
+
+  Font &operator=(Font &&other) noexcept {
+    if (this != &other) {
+      // Destroy current resources
+      this->~Font();
+
+      // Placement-new move construct
+      new (this) Font(std::move(other));
+    }
+    return *this;
+  }
   bool loadFromFile(loadFontConfig &config);
 
   glm::vec2

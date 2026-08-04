@@ -46,13 +46,15 @@ namespace avk {
 
 Font::~Font() {
   if (m_hbFont) {
+    // hb_font_destroy automatically calls FT_Done_Face(m_ftFace)
     hb_font_destroy(m_hbFont);
     m_hbFont = nullptr;
-  }
-  if (m_ftFace) {
+    m_ftFace = nullptr;
+  } else if (m_ftFace) {
     FT_Done_Face(m_ftFace);
     m_ftFace = nullptr;
   }
+
   if (m_ftEmojiFace) {
     FT_Done_Face(m_ftEmojiFace);
     m_ftEmojiFace = nullptr;
@@ -92,6 +94,15 @@ bool Font::loadFromFile(loadFontConfig &config) {
     return false;
   }
 
+  // ⚡ FIX 2: Explicitly activate Unicode charmap
+  if (m_ftFace->charmap == nullptr) {
+    FT_Select_Charmap(m_ftFace, FT_ENCODING_UNICODE);
+  }
+  if (FT_Select_Charmap(m_ftFace, FT_ENCODING_UNICODE) != 0) {
+    std::println("[atomic] Failed to select Unicode charmap");
+    // try to clean up and return false
+  }
+
   if (FT_Set_Pixel_Sizes(m_ftFace, 0, static_cast<FT_UInt>(m_pixelSize)) != 0) {
     FT_Done_Face(m_ftFace);
     m_ftFace = nullptr;
@@ -105,7 +116,7 @@ bool Font::loadFromFile(loadFontConfig &config) {
     return false;
   }
 
-  hb_ft_font_set_funcs(m_hbFont);
+  // hb_ft_font_set_funcs(m_hbFont);
 
   if (!loadMetricsCsv(config.csvPath)) {
     return false;
@@ -186,6 +197,9 @@ bool Font::loadFromFile(loadFontConfig &config) {
   if (std::filesystem::exists(emojiFontPath)) {
     if (FT_New_Face(ftLibrary, emojiFontPath.c_str(), 0, &m_ftEmojiFace) == 0) {
       if (m_ftEmojiFace) {
+        if (m_ftEmojiFace->charmap == nullptr) {
+          FT_Select_Charmap(m_ftEmojiFace, FT_ENCODING_UNICODE);
+        }
         if (m_ftEmojiFace->num_fixed_sizes > 0) {
           FT_Select_Size(m_ftEmojiFace, 0);
         } else {
@@ -304,7 +318,8 @@ bool Font::loadMetricsCsv(const char *csvPath) {
 
     m_codepointMetricsMap[gm.codepoint] = gm;
 
-    if (m_ftFace) {
+    // ⚡ FIX 3: Check charmap validity before querying FT_Get_Char_Index
+    if (m_ftFace && m_ftFace->charmap) {
       FT_UInt glyphIdx = FT_Get_Char_Index(m_ftFace, gm.codepoint);
       if (glyphIdx != 0) {
         m_glyphIndexMetricsMap[glyphIdx] = gm;
@@ -497,6 +512,11 @@ glm::vec2 Font::measureText(std::string_view text, float fontSize,
                             float maxWidth, avk::TextWrapMode wrapMode,
                             float lineHeight,
                             avk::TextAlignMode alignMode) const {
+  if (!m_hbFont || !m_ftFace || m_ftFace->charmap == nullptr) {
+    std::println("[atomic] measureText: invalid font/face/charmap");
+    return {0.0f, fontSize > 0 ? fontSize : m_pixelSize};
+  }
+
   if (text.empty() || !m_hbFont) {
     return glm::vec2(0.0f);
   }
@@ -631,7 +651,10 @@ Font::layoutText(std::string_view text, glm::vec2 position,
     bool isEmoji = isEmojiGlyph(glyph.glyphIndex);
     uint32_t activeEmojiKey = glyph.glyphIndex;
 
-    if ((!isEmoji || glyph.glyphIndex == 0) && m_ftEmojiFace) {
+    // ⚡ FIX 4: Check m_ftEmojiFace charmap validity
+    // ⚡ FIX: Use public charmap check
+    if ((!isEmoji || glyph.glyphIndex == 0) && m_ftEmojiFace &&
+        m_ftEmojiFace->charmap) {
       uint32_t codepoint = getUtf8CodepointAtCluster(text, glyph.clusterIndex);
       if (codepoint >= 0x80) {
         FT_UInt fallbackIdx = FT_Get_Char_Index(m_ftEmojiFace, codepoint);

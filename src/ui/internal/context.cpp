@@ -39,7 +39,7 @@ void initialize(VeraApp &veraAppPtr,
   g_uiState->renderer =
       std::make_unique<avk::Renderer>(g_uiState->context.get());
 
-  uint64_t totalMemorySize = Clay_MinMemorySize();
+  uint64_t totalMemorySize = Clay_MinMemorySize() * 32;
   g_clayArenaMemory = std::malloc(totalMemorySize);
   Clay_Arena arena =
       Clay_CreateArenaWithCapacityAndMemory(totalMemorySize, g_clayArenaMemory);

@@ -69,6 +69,8 @@ void Renderer::submit(const InstanceData &instance) {
 
 void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
                       VkFormat targetFormat, VkExtent2D extent) {
+  ZoneScopedN("Renderer_Render");
+
   if (m_drawQueue.empty()) {
     return;
   }
@@ -79,9 +81,13 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
   VkDeviceSize singleFrameByteSize = sizeof(InstanceData) * m_maxInstances;
   VkDeviceSize currentFrameOffset = bufferFrameIndex * singleFrameByteSize;
 
-  uint8_t *mappedPtr = static_cast<uint8_t *>(m_instanceBuffer.getMappedData());
-  std::memcpy(mappedPtr + currentFrameOffset, m_drawQueue.data(),
-              m_drawQueue.size() * sizeof(InstanceData));
+  {
+    ZoneScopedN("Renderer_CopyInstanceBuffer");
+    uint8_t *mappedPtr =
+        static_cast<uint8_t *>(m_instanceBuffer.getMappedData());
+    std::memcpy(mappedPtr + currentFrameOffset, m_drawQueue.data(),
+                m_drawQueue.size() * sizeof(InstanceData));
+  }
 
   m_frameIndex++;
 
@@ -107,87 +113,93 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
   vkCmdBeginRendering(cmd, &renderingInfo);
 
 #ifdef TRACY_ENABLE
-  if (m_context && m_context->getTracyVkCtx()) {
-    TracyVkZone(m_context->getTracyVkCtx(), cmd, "Vulkan_UI_Render_Pass");
-  }
+  // ✅ FIX: Extract context handle into the enclosing function scope
+  // so TracyVkZone stays alive for the whole render pass!
+  TracyVkCtx tracyVkCtx = m_context ? m_context->getTracyVkCtx() : nullptr;
+  TracyVkZone(tracyVkCtx, cmd, "Vulkan_UI_Render_Pass");
 #endif
 
-  // Bindless Descriptor Set
-  VkDescriptorSet bindlessSet =
-      m_context->getTextureManager()->getDescriptorSet();
-  vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          m_pipelineCache->getPipelineLayout(), 0, 1,
-                          &bindlessSet, 0, nullptr);
+  {
+    ZoneScopedN("Renderer_RecordDrawCommands");
 
-  // Viewport & Scissor
-  VkViewport viewport{0.0f,
-                      0.0f,
-                      static_cast<float>(extent.width),
-                      static_cast<float>(extent.height),
-                      0.0f,
-                      1.0f};
-  vkCmdSetViewport(cmd, 0, 1, &viewport);
+    // Bindless Descriptor Set
+    VkDescriptorSet bindlessSet =
+        m_context->getTextureManager()->getDescriptorSet();
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            m_pipelineCache->getPipelineLayout(), 0, 1,
+                            &bindlessSet, 0, nullptr);
 
-  VkRect2D scissor{{0, 0}, extent};
-  vkCmdSetScissor(cmd, 0, 1, &scissor);
+    // Viewport & Scissor
+    VkViewport viewport{0.0f,
+                        0.0f,
+                        static_cast<float>(extent.width),
+                        static_cast<float>(extent.height),
+                        0.0f,
+                        1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
 
-  // Push Constants
-  float screenSize[2] = {static_cast<float>(extent.width),
-                         static_cast<float>(extent.height)};
-  vkCmdPushConstants(cmd, m_pipelineCache->getPipelineLayout(),
-                     VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(screenSize),
-                     screenSize);
+    VkRect2D scissor{{0, 0}, extent};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-  // Bind Buffers
-  VkBuffer vertexBuffers[] = {m_quadVertexBuffer.getBuffer()};
-  VkDeviceSize offsets[] = {0};
-  vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
+    // Push Constants
+    float screenSize[2] = {static_cast<float>(extent.width),
+                           static_cast<float>(extent.height)};
+    vkCmdPushConstants(cmd, m_pipelineCache->getPipelineLayout(),
+                       VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(screenSize),
+                       screenSize);
 
-  VkBuffer instanceBuffers[] = {m_instanceBuffer.getBuffer()};
-  VkDeviceSize instanceOffsets[] = {currentFrameOffset};
-  vkCmdBindVertexBuffers(cmd, 1, 1, instanceBuffers, instanceOffsets);
+    // Bind Buffers
+    VkBuffer vertexBuffers[] = {m_quadVertexBuffer.getBuffer()};
+    VkDeviceSize offsets[] = {0};
+    vkCmdBindVertexBuffers(cmd, 0, 1, vertexBuffers, offsets);
 
-  // -------------------------------------------------------------------------
-  // ⚡ DYNAMIC PIPELINE SWITCHING (Eliminates GPU Warp Divergence)
-  // -------------------------------------------------------------------------
-  uint32_t batchStart = 0;
-  PipelineType currentType =
-      (m_drawQueue[0].fillType == 3) ? PipelineType::Text : PipelineType::Shape;
-  VkPipeline currentPipeline =
-      m_pipelineCache->getOrCreatePipeline(targetFormat, currentType);
+    VkBuffer instanceBuffers[] = {m_instanceBuffer.getBuffer()};
+    VkDeviceSize instanceOffsets[] = {currentFrameOffset};
+    vkCmdBindVertexBuffers(cmd, 1, 1, instanceBuffers, instanceOffsets);
 
-  if (currentPipeline != VK_NULL_HANDLE) {
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline);
-  }
+    // -------------------------------------------------------------------------
+    // ⚡ DYNAMIC PIPELINE SWITCHING (Eliminates GPU Warp Divergence)
+    // -------------------------------------------------------------------------
+    uint32_t batchStart = 0;
+    PipelineType currentType = (m_drawQueue[0].fillType == 3)
+                                   ? PipelineType::Text
+                                   : PipelineType::Shape;
+    VkPipeline currentPipeline =
+        m_pipelineCache->getOrCreatePipeline(targetFormat, currentType);
 
-  uint32_t totalInstances = static_cast<uint32_t>(m_drawQueue.size());
-
-  for (uint32_t i = 0; i < totalInstances; ++i) {
-    PipelineType instanceType = (m_drawQueue[i].fillType == 3)
-                                    ? PipelineType::Text
-                                    : PipelineType::Shape;
-
-    if (instanceType != currentType) {
-      uint32_t batchCount = i - batchStart;
-      if (batchCount > 0 && currentPipeline != VK_NULL_HANDLE) {
-        vkCmdDraw(cmd, 6, batchCount, 0, batchStart);
-      }
-
-      currentType = instanceType;
-      currentPipeline =
-          m_pipelineCache->getOrCreatePipeline(targetFormat, currentType);
-      if (currentPipeline != VK_NULL_HANDLE) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                          currentPipeline);
-      }
-      batchStart = i;
+    if (currentPipeline != VK_NULL_HANDLE) {
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, currentPipeline);
     }
-  }
 
-  // Flush remaining batch
-  uint32_t remainingCount = totalInstances - batchStart;
-  if (remainingCount > 0 && currentPipeline != VK_NULL_HANDLE) {
-    vkCmdDraw(cmd, 6, remainingCount, 0, batchStart);
+    uint32_t totalInstances = static_cast<uint32_t>(m_drawQueue.size());
+
+    for (uint32_t i = 0; i < totalInstances; ++i) {
+      PipelineType instanceType = (m_drawQueue[i].fillType == 3)
+                                      ? PipelineType::Text
+                                      : PipelineType::Shape;
+
+      if (instanceType != currentType) {
+        uint32_t batchCount = i - batchStart;
+        if (batchCount > 0 && currentPipeline != VK_NULL_HANDLE) {
+          vkCmdDraw(cmd, 6, batchCount, 0, batchStart);
+        }
+
+        currentType = instanceType;
+        currentPipeline =
+            m_pipelineCache->getOrCreatePipeline(targetFormat, currentType);
+        if (currentPipeline != VK_NULL_HANDLE) {
+          vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            currentPipeline);
+        }
+        batchStart = i;
+      }
+    }
+
+    // Flush remaining batch
+    uint32_t remainingCount = totalInstances - batchStart;
+    if (remainingCount > 0 && currentPipeline != VK_NULL_HANDLE) {
+      vkCmdDraw(cmd, 6, remainingCount, 0, batchStart);
+    }
   }
 
   // =========================================================================
@@ -196,8 +208,8 @@ void Renderer::render(VkCommandBuffer cmd, VkImageView targetView,
   vkCmdEndRendering(cmd);
 
 #ifdef TRACY_ENABLE
-  if (m_context && m_context->getTracyVkCtx()) {
-    TracyVkCollect(m_context->getTracyVkCtx(), cmd);
+  if (tracyVkCtx) {
+    TracyVkCollect(tracyVkCtx, cmd);
   }
 #endif
 }

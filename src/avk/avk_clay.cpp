@@ -11,12 +11,11 @@ Clay_String copyStringToClayBuffer(const std::string &text) {
         .isStaticallyAllocated = false, .length = 0, .chars = nullptr};
   }
 
-  Clay_String clayString{.isStaticallyAllocated = false,
-                         .length = static_cast<int32_t>(text.size()),
-                         .chars = text.c_str()};
-
-  // Safely copies the string data into Clay's frame-allocated dynamic arena
-  return Clay__WriteStringToCharBuffer(&context->dynamicStringData, clayString);
+  // Force Clay to allocate and copy
+  Clay_String src{.isStaticallyAllocated = false,
+                  .length = static_cast<int32_t>(text.size()),
+                  .chars = text.data()};
+  return Clay__WriteStringToCharBuffer(&context->dynamicStringData, src);
 }
 
 } // namespace atomic
