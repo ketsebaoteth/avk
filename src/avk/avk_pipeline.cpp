@@ -1,17 +1,16 @@
 ﻿#include "avk/avk_pipeline.h"
 #include "avk/avk_core.h"
 #include "avk/avk_types.h"
+#include "utils/log.h"
 #include <fstream>
-#include <iostream>
 #include <utility>
 
 namespace avk {
 
 PipelineCache::PipelineCache(VulkanContext *context) : m_context(context) {
   if (!m_context || !m_context->isValid()) {
-    std::cerr
-        << "avk: Cannot initialize PipelineCache with an invalid VulkanContext."
-        << std::endl;
+    atomic::log_error(
+        "avk: Cannot initialize PipelineCache with an invalid VulkanContext.");
     return;
   }
 
@@ -32,7 +31,7 @@ PipelineCache::PipelineCache(VulkanContext *context) : m_context(context) {
 
   if (vkCreatePipelineLayout(m_context->getDevice(), &pipelineLayoutInfo,
                              nullptr, &m_pipelineLayout) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to build Pipeline Layout." << std::endl;
+    atomic::log_error("avk: Failed to build Pipeline Layout.");
   }
 }
 
@@ -92,9 +91,10 @@ VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat,
   VkShaderModule fragModule = loadShaderModule(fragPath);
 
   if (vertModule == VK_NULL_HANDLE || fragModule == VK_NULL_HANDLE) {
-    std::cerr << "avk: Failed to compile graphics pipeline due to missing "
-                 "shader assets: "
-              << fragPath << std::endl;
+    atomic::log_error_fmt(
+        "avk: Failed to compile graphics pipeline due to missing "
+        "shader assets: %s",
+        fragPath.c_str());
     return VK_NULL_HANDLE;
   }
 
@@ -227,8 +227,10 @@ VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat,
   VkPipeline pipeline = VK_NULL_HANDLE;
   if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo,
                                 nullptr, &pipeline) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to compile graphics pipeline for type "
-              << static_cast<int>(type) << std::endl;
+    atomic::log_error_fmt(
+        "avk: Failed to compile graphics pipeline for type %d",
+        static_cast<int>(type));
+
     pipeline = VK_NULL_HANDLE;
   }
 
@@ -245,8 +247,8 @@ VkPipeline PipelineCache::getOrCreatePipeline(VkFormat colorFormat,
 VkShaderModule PipelineCache::loadShaderModule(const std::string &fileName) {
   std::ifstream file(fileName, std::ios::ate | std::ios::binary);
   if (!file.is_open()) {
-    std::cerr << "avk: Failed to open compiled shader binary file: " << fileName
-              << std::endl;
+    atomic::log_error_fmt("avk: Failed to open compiled shader binary file: %s",
+                          fileName.c_str());
     return VK_NULL_HANDLE;
   }
 
@@ -264,8 +266,8 @@ VkShaderModule PipelineCache::loadShaderModule(const std::string &fileName) {
   VkShaderModule shaderModule = VK_NULL_HANDLE;
   if (vkCreateShaderModule(m_context->getDevice(), &createInfo, nullptr,
                            &shaderModule) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to generate Shader Module for " << fileName
-              << std::endl;
+    atomic::log_error_fmt("avk: Failed to generate Shader Module for %s",
+                          fileName.c_str());
   }
   return shaderModule;
 }

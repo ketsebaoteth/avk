@@ -123,7 +123,7 @@ else()
   FetchContent_Declare(
       SheenBidi
       GIT_REPOSITORY https://github.com/Tehreer/SheenBidi.git
-      GIT_TAG v2.6.0
+      GIT_TAG v2.6
       GIT_SHALLOW TRUE
   )
   FetchContent_MakeAvailable(SheenBidi)
@@ -257,10 +257,9 @@ if(MSVC)
   target_compile_options(avk_engine PRIVATE /W4 /WX)
 else()
   target_compile_options(avk_engine PRIVATE
-      -Wall -Wextra -Werror
-      -Wno-missing-field-initializers
-      -Wno-error=maybe-uninitialized
-      -Wno-maybe-uninitialized)
+    -Wall -Wextra -Werror
+    -Wno-missing-field-initializers
+  )
 endif()
 
 target_include_directories(avk_engine PUBLIC
@@ -282,6 +281,15 @@ target_include_directories(avk_engine SYSTEM PUBLIC
 
 target_compile_definitions(avk_engine PUBLIC
     TRACY_ENABLE
+)
+set_target_properties(avk_engine PROPERTIES
+    UNITY_BUILD ON
+    UNITY_BUILD_BATCH_SIZE 16
+)
+set_source_files_properties(
+    src/avk/avk_stb.cpp
+    src/avk/avk_vma.cpp
+    PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE
 )
 
 # ⚡ LINK VULKAN SO SYMBOLS RESOLVE FOR WINDOWING / SURFACE CALLS

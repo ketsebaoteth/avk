@@ -2,6 +2,7 @@
 #include "avk/utils/ui/layout.h"
 #include "ui/core/resources.h"
 #include "ui/internal/context.h"
+#include "utils/log.h"
 
 #include <iostream>
 #include <memory>
@@ -43,7 +44,7 @@ uint32_t loadFont(const std::string &ttfPath, const std::string &atlasImagePath,
   loadConfig.fontAtlasHeight = ext.height;
 
   if (!font->loadFromFile(loadConfig)) {
-    std::cerr << "atomic: Failed to load font: " << ttfPath << std::endl;
+    atomic::log_error_fmt("atomic: Failed to load font: %s", ttfPath.c_str());
     return 0;
   }
 
@@ -138,15 +139,6 @@ avk::Font *getFont(uint32_t fontId) {
     return nullptr;
   }
   return uiState->fonts[fontId].get();
-}
-
-uint32_t getClosestIconFontId(float requestedSize) {
-  (void)requestedSize;
-  auto *uiState = getUiState();
-  if (uiState && !uiState->defaultIconFontIds.empty()) {
-    return uiState->defaultIconFontIds[0];
-  }
-  return 0;
 }
 
 bool isKeyboardCaptured() {

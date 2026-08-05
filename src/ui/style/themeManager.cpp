@@ -249,9 +249,10 @@ void ThemeManager::registerBuiltInTokens() {
   registerToken(ThemeVarId::TextInputPadX, "--text-input-pad-x");
   registerToken(ThemeVarId::TextInputPadY, "--text-input-pad-y");
   registerToken(ThemeVarId::BorderRadiusLg, "--border-radius-lg");
+  registerToken(ThemeVarId::BorderRadiusXl, "--border-radius-xl");
   registerToken(ThemeVarId::BorderWidthThin, "--border-width-thin");
   registerToken(ThemeVarId::BorderWidthNone, "--border-width-none");
-
+  registerToken(ThemeVarId::ColorTextInverse, "--color-text-inverse");
   registerToken(ThemeVarId::TransitionDurationNormal,
                 "--transition-duration-normal");
 

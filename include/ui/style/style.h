@@ -2,8 +2,10 @@
 
 #include "glm/glm.hpp"
 #include "ui/motion/Curves.h"
+#include "ui/renderer/resizeConfig.h"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -199,7 +201,12 @@ struct Style {
   std::optional<glm::vec2> offset;
   std::optional<ObjectFit> objectFit;
   std::optional<glm::vec4> uvBounds;
+
   std::optional<float> zIndex;
+
+  std::optional<std::shared_ptr<Style>> hoveredStyle;
+  std::optional<std::shared_ptr<Style>> activeStyle;
+  std::optional<ResizeConfig> resizeConfig;
 };
 
 } // namespace atomic

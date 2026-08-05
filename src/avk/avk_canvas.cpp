@@ -3,7 +3,7 @@
 #include "avk/avk_frame.h"
 #include "avk/avk_renderer.h"
 #include "avk/avk_swapchain.h"
-#include <iostream>
+#include "utils/log.h"
 
 namespace avk {
 
@@ -32,9 +32,8 @@ WindowCanvas::WindowCanvas(VulkanContext *context, VkSurfaceKHR surface,
   for (uint32_t i = 0; i < imageCount; ++i) {
     if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
                           &m_renderFinishedSemaphores[i]) != VK_SUCCESS) {
-      std::cerr
-          << "avk: Failed to create image-indexed render finished semaphore."
-          << std::endl;
+      atomic::log_error(
+          "avk: Failed to create image-indexed render finished semaphore.");
     }
   }
 }
@@ -97,9 +96,8 @@ void WindowCanvas::resize(uint32_t width, uint32_t height) {
   for (uint32_t i = 0; i < imageCount; ++i) {
     if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
                           &m_renderFinishedSemaphores[i]) != VK_SUCCESS) {
-      std::cerr << "avk: Failed to create fresh render semaphore during "
-                   "swapchain resize."
-                << std::endl;
+      atomic::log_error("avk: Failed to create fresh render semaphore during "
+                        "swapchain resize.");
     }
   }
 

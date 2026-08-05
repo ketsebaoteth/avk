@@ -1,5 +1,8 @@
 #pragma once
 
+#include "ui/utils/color.h"
+#include <glm/glm.hpp>
+
 namespace atomic {
 /**
  * @brief Interaction result payload returned by interactive primitives.
@@ -12,4 +15,5 @@ struct Interaction {
 
   explicit operator bool() const { return clicked || changed; }
 };
+
 } // namespace atomic

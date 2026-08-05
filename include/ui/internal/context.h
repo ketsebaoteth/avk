@@ -10,6 +10,7 @@
 #include "ui/internal/cascadingStyle.h"
 #include "ui/internal/payload.h"
 #include "ui/motion/AtomicMotion.h"
+#include "ui/renderer/resizeConfig.h"
 #include "ui/state/inputState.h"
 #include "ui/state/scrollViewState.h"
 
@@ -56,6 +57,15 @@ struct ElementLifecycleState {
   float unmountProgress = 0.0f;
 };
 
+struct ActiveResizeState {
+  uint32_t elementId = 0;
+  ResizeEdge activeEdge = ResizeEdge::NoEdge;
+  glm::vec2 dragStartMousePos{0.0f};
+  glm::vec2 startPosition{0.0f};
+  glm::vec2 startSize{0.0f};
+  glm::vec2 currentSize{0.0f};
+  glm::vec2 currentPosition{0.0f};
+};
 /**
  * @brief Master runtime UI engine context state.
  */
@@ -64,6 +74,9 @@ struct UIState {
   std::unique_ptr<avk::Renderer> renderer;
   bool injectDevTools = true;
   std::vector<std::string> stringArena;
+  std::optional<ActiveResizeState> activeResize;
+  std::unordered_map<uint32_t, glm::vec2> persistentDivSizes;
+  std::unordered_map<uint32_t, glm::vec2> persistentDivPositions;
 
   // Frame Data & Performance Metrics
   float frameTimeMs = 0.0f;

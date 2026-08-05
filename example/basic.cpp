@@ -1,4 +1,14 @@
-#include "avk/atomic.h"
+#include "core/app/App.h"
+#include "core/app/Types.h"
+#include "ui/components.h"
+#include "ui/core/frame.h"
+#include "ui/core/resources.h"
+#include "ui/internal/context.h"
+#include "ui/style/modifier.h"
+#include "ui/style/style.h"
+#include "ui/style/themeManager.h"
+#include "ui/utils/color.h"
+
 #include <print>
 #include <string>
 
@@ -7,27 +17,58 @@ void drawTextBenchmarkScene(VeraWindow *window) {
 
   auto width = static_cast<float>(getWidth(window));
   auto height = static_cast<float>(getHeight(window));
-
+  auto &tm = ThemeManager::getInstance();
+  static auto val = 0;
   // Root background container
-  Div(Modifier().background("#1e1e1e"_hex).size(width, height), [&]() {
-    // Scrollable viewport
-    ScrollView(
-        Modifier().id("BenchmarkScrollView").widthGrow().heightGrow(), [&]() {
-          // Column wrapper for the 1,300 text items
-          Div(Modifier().column().padding(8).gap(2).widthGrow(), [&]() {
-            for (int i = 0; i < 1300; ++i) {
-              std::string textStr = "Text element #" + std::to_string(i) +
-                                    " - Sample text for performance testing";
+  Div(Modifier()
+          .background(
+              tm.getVariable<glm::vec4>(ThemeVarId::ColorBgApp, "#ffffff"_hex))
+          .row()
+          .gap(30)
+          .size(width, height),
+      [&]() {
+        // decrease by one
+        if (Button(Modifier().id("MinusI"), []() { Icon(LucideIcon::Minus); }))
+          val--;
 
-              Div(Modifier().padding(4).background("#2d2d2d"_hex).widthGrow(),
-                  [&]() {
-                    Text(textStr,
-                         Modifier().fontSize(14).textColor(Colors::white));
-                  });
-            }
-          });
-        });
-  });
+        // show value
+        Text(std::format("{}", val), Modifier());
+
+        // increase by one
+        if (Button(Modifier().id("plusB"), []() { Icon(LucideIcon::Plus); }))
+          val++;
+        Div(Modifier()
+                .width(360)
+                .height(240)
+                .background("#17191e"_hex)
+                .border("#2a2d36"_hex, 1)
+                .rounded(12)
+                .padding(20)
+                .column()
+                .resize(ResizeConfig{
+                    .allowedEdges = ResizeEdge::BottomRight,
+                    .minSize = glm::vec2(200, 150),
+
+                    // ⚡ Handle lambda now returns Interaction!
+                    .onRenderBottomRight =
+                        [](const HandleState &state) {
+                          glm::vec4 knobBg =
+                              state.isDragging
+                                  ? "#3b82f6"_hex
+                                  : (state.isHovered ? "#60a5fa"_hex
+                                                     : "#3f3f46"_hex);
+
+                          // Render knob Div and RETURN its Interaction struct
+                          // directly
+                          Div(Modifier()
+                                  .size(12, 12)
+                                  .background(knobBg)
+                                  .rounded(3)
+                                  .onHover(
+                                      Modifier().background("#93c5fd"_hex)));
+                        }}),
+            [&]() { Text("Interactive Handle Knob Example!"); });
+      });
 }
 
 int main() {

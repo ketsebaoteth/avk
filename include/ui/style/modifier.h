@@ -1,16 +1,15 @@
 #pragma once
 
-#include "avk/utils/ui/layout.h"
-#include "glm/glm.hpp"
-#include "ui/internal/cascadingStyle.h"
-#include "ui/internal/context.h"
 #include "ui/motion/AtomicMotion.h"
+#include "ui/renderer/resizeConfig.h"
 #include "ui/style/style.h"
 
 #include <algorithm>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace atomic {
 
@@ -44,148 +43,41 @@ public:
   }
 
   // =========================================================================
-  // HIGH-LEVEL MOTION SHORTHANDS (Re-uses ID set via .id())
+  // HIGH-LEVEL MOTION SHORTHANDS (Implemented in modifier.cpp)
   // =========================================================================
 
-  /** @brief Animates element scale using a single target value. */
   Modifier animateScale(float targetScale, float duration = 0.2f,
-                        AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    auto *uiState = getUiState();
-    if (!uiState)
-      return std::move(*this).scale(targetScale);
+                        AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-
-    float animatedScale = uiState->motionManager.animate<float>(
-        motion::MotionHandle(rawId, "scale"), targetScale, duration, curve);
-
-    return std::move(*this).scale(animatedScale);
-  }
-
-  /** @brief Animates element scale across 3 states (Idle, Hovered, Pressed)
-   * using stored .id(). */
   Modifier animateScale(const MotionState<float> &state, float duration = 0.2f,
-                        AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-    bool hov = isHovered(rawId);
-    bool prs = isPressed(rawId);
+                        AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    float target = state.resolve(hov, prs);
-    return std::move(*this).animateScale(target, duration, curve);
-  }
-
-  /** @brief Animates background color using a single target value. */
   Modifier
   animateBackground(const glm::vec4 &targetBg, float duration = 0.2f,
-                    AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    auto *uiState = getUiState();
-    if (!uiState)
-      return std::move(*this).background(targetBg);
+                    AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-
-    glm::vec4 animatedBg = uiState->motionManager.animate<glm::vec4>(
-        motion::MotionHandle(rawId, "bg"), targetBg, duration, curve);
-
-    return std::move(*this).background(animatedBg);
-  }
-
-  /** @brief Animates background color across 3 states (Idle, Hovered, Pressed)
-   * using stored .id(). */
   Modifier
   animateBackground(const MotionState<glm::vec4> &state, float duration = 0.2f,
-                    AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-    bool hov = isHovered(rawId);
-    bool prs = isPressed(rawId);
+                    AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    glm::vec4 target = state.resolve(hov, prs);
-    return std::move(*this).animateBackground(target, duration, curve);
-  }
-
-  /** @brief Animates border color using a single target value. */
   Modifier animateBorder(const glm::vec4 &targetColor, float thickness = 1.0f,
                          float duration = 0.2f,
-                         AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    auto *uiState = getUiState();
-    if (!uiState)
-      return std::move(*this).border(targetColor, thickness);
+                         AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-
-    glm::vec4 animatedColor = uiState->motionManager.animate<glm::vec4>(
-        motion::MotionHandle(rawId, "border"), targetColor, duration, curve);
-
-    return std::move(*this).border(animatedColor, thickness);
-  }
-
-  /** @brief Animates border color across 3 states (Idle, Hovered, Pressed)
-   * using stored .id(). */
   Modifier animateBorder(const MotionState<glm::vec4> &state,
                          float thickness = 1.0f, float duration = 0.2f,
-                         AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-    bool hov = isHovered(rawId);
-    bool prs = isPressed(rawId);
+                         AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    glm::vec4 target = state.resolve(hov, prs);
-    return std::move(*this).animateBorder(target, thickness, duration, curve);
-  }
-
-  /** @brief Animates GPU translation offset using a single target vector. */
   Modifier
   animateTranslate(const glm::vec2 &targetTranslate, float duration = 0.2f,
-                   AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    auto *uiState = getUiState();
-    if (!uiState)
-      return std::move(*this).translate(targetTranslate.x, targetTranslate.y);
+                   AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-
-    float tx = uiState->motionManager.animate<float>(
-        motion::MotionHandle(rawId, "tx"), targetTranslate.x, duration, curve);
-    float ty = uiState->motionManager.animate<float>(
-        motion::MotionHandle(rawId, "ty"), targetTranslate.y, duration, curve);
-
-    return std::move(*this).translate(tx, ty);
-  }
-
-  /** @brief Animates GPU translation offset across 3 states (Idle, Hovered,
-   * Pressed). */
   Modifier
   animateTranslate(const MotionState<glm::vec2> &state, float duration = 0.2f,
-                   AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-    bool hov = isHovered(rawId);
-    bool prs = isPressed(rawId);
+                   AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
-    glm::vec2 target = state.resolve(hov, prs);
-    return std::move(*this).animateTranslate(target, duration, curve);
-  }
-
-  /** @brief Animates opacity multiplier using a single target value. */
   Modifier animateOpacity(float targetOpacity, float duration = 0.2f,
-                          AnimationCurve curve = AnimationCurve::EaseOut()) && {
-    auto *uiState = getUiState();
-    if (!uiState)
-      return std::move(*this).opacity(targetOpacity);
-
-    std::string label = m_style.elementLabel.value_or("AnonModifier");
-    uint32_t rawId = hashLabel(label);
-
-    float animatedAlpha = uiState->motionManager.animate<float>(
-        motion::MotionHandle(rawId, "opacity"), targetOpacity, duration, curve);
-
-    return std::move(*this).opacity(animatedAlpha);
-  }
+                          AnimationCurve curve = AnimationCurve::EaseOut()) &&;
 
   // =========================================================================
   // STANDARD LAYOUT MODIFIERS
@@ -198,6 +90,7 @@ public:
     m_style.marginBottom = all;
     return std::move(*this);
   }
+
   Modifier margin(float horizontal, float vertical) {
     m_style.marginLeft = horizontal;
     m_style.marginRight = horizontal;
@@ -205,6 +98,7 @@ public:
     m_style.marginBottom = vertical;
     return std::move(*this);
   }
+
   Modifier margin(glm::vec4 all) {
     m_style.marginLeft = all.x;
     m_style.marginRight = all.y;
@@ -291,17 +185,17 @@ public:
   Modifier subtleShadow(int level = 1) && {
     level = std::clamp(level, 1, 5);
     switch (level) {
-    case 1: // light floating panel / popover
+    case 1:
       return std::move(*this)
           .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.06f), 16.0f, 0.0f, 4.0f)
           .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.04f), 8.0f, 0.0f, 1.0f);
 
-    case 2: // medium elevation (most sheets)
+    case 2:
       return std::move(*this)
           .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 24.0f, 0.0f, 8.0f)
           .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.05f), 12.0f, 0.0f, 2.0f);
 
-    case 3: // higher / modal-ish
+    case 3:
       return std::move(*this)
           .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.10f), 36.0f, 0.0f, 12.0f)
           .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.06f), 16.0f, 0.0f, 4.0f);
@@ -318,6 +212,7 @@ public:
           .shadow(glm::vec4(0.0f, 0.0f, 0.0f, 0.08f), 28.0f, 0.0f, 8.0f);
     }
   }
+
   Modifier transition(float duration = 0.15f,
                       AnimationCurve curve = AnimationCurve::EaseOut()) && {
     m_style.transitionSpec =
@@ -485,9 +380,6 @@ public:
   }
 
   Modifier rounded(float radius) && {
-    // atomic::CascadingStyle cstyle =
-    // utils::layout::getComputedStyle(m_style.); std::clamp(radius, 0,
-    // std::min(m_style.width, m_style.height) / 2);
     m_style.borderRadius = glm::vec4(radius);
     return std::move(*this);
   }
@@ -665,7 +557,23 @@ public:
     return std::move(*this);
   }
 
+  Modifier &&onHover(Modifier modifier) && {
+    m_style.hoveredStyle = std::make_shared<Style>(std::move(modifier.m_style));
+    return std::move(*this);
+  }
+
+  Modifier &onHover(Modifier modifier) & {
+    m_style.hoveredStyle = std::make_shared<Style>(std::move(modifier.m_style));
+    return *this;
+  }
+
+  Modifier resize(ResizeConfig config) && {
+    m_style.resizeConfig = config;
+    return std::move(*this);
+  }
+
   [[nodiscard]] const Style &getStyle() const { return m_style; }
+  [[nodiscard]] Style &getStyle() { return m_style; }
 
 private:
   Style m_style;

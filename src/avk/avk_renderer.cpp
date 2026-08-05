@@ -1,8 +1,8 @@
 #include "avk/avk_renderer.h"
 #include "avk/avk_core.h"
 #include "avk/avk_pipeline.h"
+#include "utils/log.h"
 #include <cstring>
-#include <iostream>
 #include <utility>
 #include <vulkan/vulkan_core.h>
 
@@ -10,9 +10,8 @@ namespace avk {
 
 Renderer::Renderer(VulkanContext *context) : m_context(context) {
   if (!m_context || !m_context->isValid()) {
-    std::cerr
-        << "avk: Cannot initialize Renderer with an invalid VulkanContext."
-        << std::endl;
+    atomic::log_error(
+        "avk: Cannot initialize Renderer with an invalid VulkanContext.");
     return;
   }
 
@@ -60,8 +59,8 @@ void Renderer::begin() { m_drawQueue.clear(); }
 
 void Renderer::submit(const InstanceData &instance) {
   if (m_drawQueue.size() >= m_maxInstances) {
-    std::cerr << "avk: Draw queue limit exceeded! Max capacity: "
-              << m_maxInstances << std::endl;
+    atomic::log_error_fmt("avk: Draw queue limit exceeded! Max capacity: %zu",
+                          m_maxInstances);
     return;
   }
   m_drawQueue.push_back(instance);

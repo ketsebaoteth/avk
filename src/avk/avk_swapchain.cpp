@@ -1,7 +1,7 @@
 ﻿#include "avk/avk_swapchain.h"
 #include "avk/avk_core.h"
+#include "utils/log.h"
 #include <algorithm>
-#include <iostream>
 #include <utility>
 
 namespace avk {
@@ -10,8 +10,7 @@ VulkanSwapchain::VulkanSwapchain(VulkanContext *context, VkSurfaceKHR surface,
                                  uint32_t width, uint32_t height)
     : m_context(context), m_surface(surface) {
   if (!m_context || !m_context->isValid() || m_surface == VK_NULL_HANDLE) {
-    std::cerr << "avk: Invalid context or surface provided to swapchain."
-              << std::endl;
+    atomic::log_error("avk: Invalid context or surface provided to swapchain.");
     return;
   }
 
@@ -210,7 +209,7 @@ bool VulkanSwapchain::build(uint32_t width, uint32_t height) {
 
   if (vkCreateSwapchainKHR(device, &createInfo, nullptr, &m_swapchain) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct VkSwapchainKHR." << std::endl;
+    atomic::log_error("avk: Failed to construct VkSwapchainKHR.");
     return false;
   }
 
@@ -239,8 +238,8 @@ bool VulkanSwapchain::build(uint32_t width, uint32_t height) {
 
     if (vkCreateImageView(device, &viewInfo, nullptr, &m_imageViews[i]) !=
         VK_SUCCESS) {
-      std::cerr << "avk: Failed to create VkImageView for swapchain element #"
-                << i << std::endl;
+      atomic::log_error_fmt(
+          "avk: Failed to create VkImageView for swapchain element # %zu", i);
       return false;
     }
   }

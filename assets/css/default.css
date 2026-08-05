@@ -29,12 +29,12 @@
   --color-primary: #3b82f6;
   --color-primary-hover: #2563eb;
   --color-primary-active: #1d4ed8;
-  --color-accent: #ff8000;
+  --color-accent: #febc99;
   --color-transparent: rgba(0, 0, 0, 0.0);
 
   /* Typography Colors */
   --color-text-primary: #171717;      /* Colors::black[900] */
-  --color-text-secondary: #525252;
+  --color-text-secondary: #e45009;
   --color-text-tertiary: #737373;     /* Placeholder color */
   --color-text-disabled: #a3a3a3;
   --color-text-inverse: #ffffff;

@@ -1,15 +1,14 @@
 ﻿#include "avk/avk_frame.h"
 #include "avk/avk_core.h"
-#include <iostream>
+#include "utils/log.h"
 #include <utility>
 
 namespace avk {
 
 FrameContext::FrameContext(VulkanContext *context) : m_context(context) {
   if (!m_context || !m_context->isValid()) {
-    std::cerr
-        << "avk: Cannot initialize FrameContext with an invalid VulkanContext."
-        << std::endl;
+    atomic::log_error(
+        "avk: Cannot initialize FrameContext with an invalid VulkanContext.");
     return;
   }
 
@@ -23,8 +22,7 @@ FrameContext::FrameContext(VulkanContext *context) : m_context(context) {
 
   if (vkCreateCommandPool(device, &poolInfo, nullptr, &m_commandPool) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to create command pool for FrameContext."
-              << std::endl;
+    atomic::log_error("avk: Failed to create command pool for FrameContext.");
     return;
   }
 
@@ -36,8 +34,9 @@ FrameContext::FrameContext(VulkanContext *context) : m_context(context) {
 
   if (vkAllocateCommandBuffers(device, &allocInfo, &m_commandBuffer) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to allocate command buffer for FrameContext."
-              << std::endl;
+    atomic::log_error(
+        "avk: Failed to allocate command buffer for FrameContext.");
+
     release();
     return;
   }
@@ -47,8 +46,7 @@ FrameContext::FrameContext(VulkanContext *context) : m_context(context) {
 
   if (vkCreateSemaphore(device, &semaphoreInfo, nullptr,
                         &m_imageAvailableSemaphore) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to create synchronization semaphore."
-              << std::endl;
+    atomic::log_error("avk: Failed to create synchronization semaphore.");
     release();
     return;
   }
@@ -59,7 +57,7 @@ FrameContext::FrameContext(VulkanContext *context) : m_context(context) {
 
   if (vkCreateFence(device, &fenceInfo, nullptr, &m_inFlightFence) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to create synchronization fence." << std::endl;
+    atomic::log_error("avk: Failed to create synchronization fence.");
     release();
     return;
   }
@@ -93,7 +91,7 @@ FrameContext &FrameContext::operator=(FrameContext &&other) noexcept {
 bool FrameContext::reset() {
   if (vkResetCommandPool(m_context->getDevice(), m_commandPool, 0) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to bulk reset command pool." << std::endl;
+    atomic::log_error("avk: Failed to bulk reset command pool.");
     return false;
   }
   return true;

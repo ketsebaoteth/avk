@@ -54,9 +54,9 @@ private:
   uint32_t m_currentFrameIndex = 0;
   uint32_t m_acquiredImageIndex = 0;
 
-  bool m_resizePending = false;
-  uint32_t m_pendingWidth = 0;
-  uint32_t m_pendingHeight = 0;
+  // bool m_resizePending = false;
+  // uint32_t m_pendingWidth = 0;
+  // uint32_t m_pendingHeight = 0;
 
   std::vector<DeferredSwapchainTrash> m_deletionQueue;
 };

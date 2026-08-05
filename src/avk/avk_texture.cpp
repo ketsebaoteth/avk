@@ -1,8 +1,8 @@
 #include "avk/avk_texture.h"
 #include "avk/avk_core.h"
 #include "stb/stb_image.h"
+#include "utils/log.h"
 #include <cstring>
-#include <iostream>
 #include <print>
 #include <utility>
 #include <vulkan/vulkan_core.h>
@@ -11,9 +11,8 @@ namespace avk {
 
 TextureManager::TextureManager(VulkanContext *context) : m_context(context) {
   if (!m_context || !m_context->isValid()) {
-    std::cerr << "avk: Cannot initialize TextureManager with an invalid "
-                 "VulkanContext."
-              << std::endl;
+    atomic::log_error("avk: Cannot initialize TextureManager with an invalid "
+                      "VulkanContext.");
     return;
   }
 
@@ -49,8 +48,9 @@ uint32_t TextureManager::allocateBindlessSlot() {
 bool TextureManager::registerTextureAtSlot(uint32_t slot, VkImageView view,
                                            VkSampler sampler) {
   if (slot >= MAX_BINDLESS_TEXTURES || view == VK_NULL_HANDLE) {
-    std::cerr << "avk: Cannot register invalid view at slot: " << slot
-              << std::endl;
+    atomic::log_error_fmt("avk: Cannot register invalid view at slot: %u",
+                          slot);
+
     return false;
   }
 
@@ -76,7 +76,7 @@ bool TextureManager::registerTextureAtSlot(uint32_t slot, VkImageView view,
 }
 uint32_t TextureManager::loadFontTexture(const std::string &path) {
   if (m_freeSlots.empty()) {
-    std::cerr << "avk: Max bindless texture limit reached!" << std::endl;
+    atomic::log_error("avk: Max bindless texture limit reached!");
     return 0;
   }
 
@@ -84,8 +84,9 @@ uint32_t TextureManager::loadFontTexture(const std::string &path) {
   stbi_uc *pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels,
                               STBI_rgb_alpha);
   if (!pixels) {
-    std::cerr << "avk: Failed to load font atlas asset path: " << path
-              << std::endl;
+    atomic::log_error_fmt("avk: Failed to load font atlas asset path: %s",
+                          path.c_str());
+
     return 0;
   }
 
@@ -238,7 +239,7 @@ void TextureManager::createFontSampler() {
 
   if (vkCreateSampler(device, &samplerInfo, nullptr, &m_fontSampler) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct Font Linear Sampler." << std::endl;
+    atomic::log_error("avk: Failed to construct Font Linear Sampler.");
   }
 }
 
@@ -279,7 +280,7 @@ void TextureManager::release() {
 uint32_t TextureManager::loadRawPixels(const uint8_t *pixels, uint32_t width,
                                        uint32_t height) {
   if (m_freeSlots.empty() || !pixels || width == 0 || height == 0) {
-    std::cerr << "avk: Cannot load raw pixels from empty buffer!" << std::endl;
+    atomic::log_error("avk: Cannot load raw pixels from empty buffer!");
     return 0;
   }
 
@@ -388,8 +389,7 @@ uint32_t TextureManager::loadRawPixels(const uint8_t *pixels, uint32_t width,
 }
 uint32_t TextureManager::loadTextureFromMemory(std::span<const uint8_t> bytes) {
   if (m_freeSlots.empty() || bytes.empty()) {
-    std::cerr << "avk: Cannot load texture from empty memory buffer!"
-              << std::endl;
+    atomic::log_error("avk: Cannot load texture from empty memory buffer!");
     return 0;
   }
 
@@ -400,8 +400,7 @@ uint32_t TextureManager::loadTextureFromMemory(std::span<const uint8_t> bytes) {
       &texChannels, STBI_rgb_alpha);
 
   if (!pixels) {
-    std::cerr << "avk: Failed to decode texture from memory buffer!"
-              << std::endl;
+    atomic::log_error("avk: Failed to decode texture from memory buffer!");
     return 0;
   }
 
@@ -504,8 +503,7 @@ uint32_t TextureManager::loadTextureFromMemory(std::span<const uint8_t> bytes) {
   viewInfo.subresourceRange.layerCount = 1;
 
   if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to build VkImageView for memory texture."
-              << std::endl;
+    atomic::log_error("avk: Failed to build VkImageView for memory texture.");
     gpuImage.destroy();
     return 0;
   }
@@ -516,7 +514,7 @@ uint32_t TextureManager::loadTextureFromMemory(std::span<const uint8_t> bytes) {
 
 uint32_t TextureManager::loadTexture(const std::string &path) {
   if (m_freeSlots.empty()) {
-    std::cerr << "avk: Max bindless texture limit reached!" << std::endl;
+    atomic::log_error("avk: Max bindless texture limit reached!");
     return 0;
   }
 
@@ -525,7 +523,8 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
   stbi_uc *pixels = stbi_load(path.c_str(), &texWidth, &texHeight, &texChannels,
                               STBI_rgb_alpha);
   if (!pixels) {
-    std::cerr << "avk: Failed to load image asset path: " << path << std::endl;
+    atomic::log_error_fmt("avk: Failed to load image asset path: %u",
+                          path.c_str());
     return 0;
   }
 
@@ -627,7 +626,7 @@ uint32_t TextureManager::loadTexture(const std::string &path) {
   viewInfo.subresourceRange.layerCount = 1;
 
   if (vkCreateImageView(device, &viewInfo, nullptr, &view) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to build VkImageView for texture." << std::endl;
+    atomic::log_error("avk: Failed to build VkImageView for texture.");
     gpuImage.destroy();
     return 0;
   }
@@ -679,8 +678,8 @@ void TextureManager::createDescriptorSet() {
 
   if (vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr,
                                   &m_descriptorSetLayout) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct Bindless Descriptor Set Layout."
-              << std::endl;
+    atomic::log_error(
+        "avk: Failed to construct Bindless Descriptor Set Layout.");
   }
 
   VkDescriptorPoolSize poolSize{};
@@ -696,8 +695,7 @@ void TextureManager::createDescriptorSet() {
 
   if (vkCreateDescriptorPool(device, &poolInfo, nullptr, &m_descriptorPool) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct Bindless Descriptor Pool."
-              << std::endl;
+    atomic::log_error("avk: Failed to construct Bindless Descriptor Pool.");
   }
 
   VkDescriptorSetAllocateInfo allocInfo{};
@@ -708,8 +706,7 @@ void TextureManager::createDescriptorSet() {
 
   if (vkAllocateDescriptorSets(device, &allocInfo, &m_descriptorSet) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to allocate Bindless Descriptor Set."
-              << std::endl;
+    atomic::log_error("avk: Failed to allocate Bindless Descriptor Set.");
   }
 }
 
@@ -730,7 +727,7 @@ void TextureManager::createSharedSampler() {
 
   if (vkCreateSampler(device, &samplerInfo, nullptr, &m_sharedSampler) !=
       VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct shared UI Sampler." << std::endl;
+    atomic::log_error("avk: Failed to construct shared UI Sampler.");
   }
 }
 
@@ -745,7 +742,7 @@ TextureManager::beginSingleTimeCommands(VkCommandPool &outPool) {
   poolInfo.queueFamilyIndex = m_context->getQueueFamilies().graphicsFamily;
 
   if (vkCreateCommandPool(device, &poolInfo, nullptr, &outPool) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to create transient command pool." << std::endl;
+    atomic::log_error("avk: Failed to create transient command pool.");
     return VK_NULL_HANDLE;
   }
 
@@ -844,7 +841,7 @@ void TextureManager::transitionImageLayout(VkImage image, VkFormat format,
 uint32_t TextureManager::registerTexture(AllocatedImage &&image,
                                          VkImageView view, VkSampler sampler) {
   if (m_freeSlots.empty()) {
-    std::cerr << "avk: Max bindless texture limit reached!" << std::endl;
+    atomic::log_error("avk: Max bindless texture limit reached!");
     return 0;
   }
 

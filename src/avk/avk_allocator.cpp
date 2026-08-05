@@ -1,6 +1,6 @@
 ﻿#include "avk/avk_allocator.h"
 #include "avk/avk_core.h"
-#include <iostream>
+#include "utils/log.h"
 #include <utility>
 
 namespace avk {
@@ -95,9 +95,10 @@ void AllocatedImage::destroy() {
 
 GpuAllocator::GpuAllocator(VulkanContext *context) : m_context(context) {
   if (!m_context || m_context->getDevice() == VK_NULL_HANDLE) {
-    std::cerr << "avk: Cannot initialize GpuAllocator from an uninitialized "
-                 "Vulkan device."
-              << std::endl;
+    atomic::log_error(
+        "avk: Cannot initialize GpuAllocator from an uninitialized "
+        "Vulkan device.");
+
     return;
   }
 
@@ -116,8 +117,8 @@ GpuAllocator::GpuAllocator(VulkanContext *context) : m_context(context) {
   allocatorInfo.pVulkanFunctions = &vulkanFunctions;
 
   if (vmaCreateAllocator(&allocatorInfo, &m_allocator) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to construct VMA master allocator instance."
-              << std::endl;
+    atomic::log_error(
+        "avk: Failed to construct VMA master allocator instance.");
     m_allocator = nullptr;
   }
 }
@@ -153,8 +154,8 @@ AllocatedBuffer GpuAllocator::createBuffer(VkDeviceSize size,
                                            VmaMemoryUsage memoryUsage,
                                            VmaAllocationCreateFlags flags) {
   if (m_allocator == nullptr) {
-    std::cerr << "avk: Failed to allocate buffer; allocator is not initialized."
-              << std::endl;
+    atomic::log_error(
+        "avk: Failed to allocate buffer; allocator is not initialized.");
     return AllocatedBuffer{};
   }
 
@@ -174,8 +175,8 @@ AllocatedBuffer GpuAllocator::createBuffer(VkDeviceSize size,
 
   if (vmaCreateBuffer(m_allocator, &bufferInfo, &allocInfo, &buffer,
                       &allocation, &allocationResultInfo) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to allocate GPU buffer of size " << size
-              << std::endl;
+    atomic::log_error_fmt("avk: Failed to allocate GPU buffer of size %lu",
+                          size);
     return AllocatedBuffer{};
   }
 
@@ -186,8 +187,8 @@ AllocatedImage GpuAllocator::createImage(const VkImageCreateInfo &imageInfo,
                                          VmaMemoryUsage memoryUsage,
                                          VmaAllocationCreateFlags flags) {
   if (m_allocator == nullptr) {
-    std::cerr << "avk: Failed to allocate image; allocator is not initialized."
-              << std::endl;
+    atomic::log_error(
+        "avk: Failed to allocate image; allocator is not initialized.");
     return AllocatedImage{};
   }
 
@@ -200,7 +201,7 @@ AllocatedImage GpuAllocator::createImage(const VkImageCreateInfo &imageInfo,
 
   if (vmaCreateImage(m_allocator, &imageInfo, &allocInfo, &image, &allocation,
                      nullptr) != VK_SUCCESS) {
-    std::cerr << "avk: Failed to allocate GPU image." << std::endl;
+    atomic::log_error("avk: Failed to allocate GPU image.");
     return AllocatedImage{};
   }
 

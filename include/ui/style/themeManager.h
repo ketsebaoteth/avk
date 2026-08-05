@@ -38,6 +38,7 @@ enum class ThemeVarId : uint32_t {
   ColorTextPrimary,
   ColorTextSecondary,
   ColorTextTertiary,
+  ColorTextInverse,
   ColorTextDisabled,
 
   // Borders
@@ -54,6 +55,7 @@ enum class ThemeVarId : uint32_t {
   TextInputPadX,
   TextInputPadY,
   BorderRadiusLg,
+  BorderRadiusXl,
   BorderWidthThin,
   TransitionDurationNormal,
 

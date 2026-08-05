@@ -1,6 +1,6 @@
 #include "avk/utils/ui/layout.h"
 #include "ui/components.h"
-#include "ui/motion/AtomicMotion.h"
+#include "ui/internal/context.h"
 
 #include <chrono>
 #include <functional>

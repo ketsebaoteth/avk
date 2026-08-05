@@ -93,11 +93,6 @@ avk::Font *getFont(uint32_t fontId);
 uint32_t getDefaultFontId();
 
 /**
- * @brief Finds closest icon font size tier for vector atlas rendering.
- */
-uint32_t getClosestIconFontId(float requestedSize);
-
-/**
  * @brief Returns true if any UI element currently holds keyboard focus.
  */
 bool isKeyboardCaptured();
